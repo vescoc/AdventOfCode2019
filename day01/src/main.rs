@@ -1,3 +1,6 @@
+#![feature(test)]
+extern crate test;
+
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -17,6 +20,21 @@ fn calculate_total_fuel(mass: i32) -> i32 {
             total += current;
         }
     }
+}
+
+#[allow(dead_code)]
+fn calculate_total_fuel_f(mass: i32) -> i32 {
+    (0..)
+        .try_fold((mass, 0), |(mass, total), _| {
+            let current = calculate_fuel(mass);
+            if current <= 0 {
+                Err(total)
+            } else {
+                Ok((current, total + current))
+            }
+        })
+        .err()
+        .unwrap()
 }
 
 fn part(masses: &[i32], f: fn(i32) -> i32) -> i32 {
@@ -42,6 +60,7 @@ fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test::Bencher;
 
     #[test]
     fn example_1() {
@@ -56,5 +75,27 @@ mod tests {
         assert_eq!(calculate_total_fuel(12), 2);
         assert_eq!(calculate_total_fuel(1969), 966);
         assert_eq!(calculate_total_fuel(100756), 50346);
+    }
+
+    #[test]
+    fn example_2_f() {
+        assert_eq!(calculate_total_fuel_f(12), 2);
+        assert_eq!(calculate_total_fuel_f(1969), 966);
+        assert_eq!(calculate_total_fuel_f(100756), 50346);
+    }
+
+    #[bench]
+    fn bench_example_1(b: &mut Bencher) {
+        b.iter(|| calculate_fuel(100756))
+    }
+
+    #[bench]
+    fn bench_example_2(b: &mut Bencher) {
+        b.iter(|| calculate_total_fuel(100756))
+    }
+
+    #[bench]
+    fn bench_example_2_f(b: &mut Bencher) {
+        b.iter(|| calculate_total_fuel_f(100756))
     }
 }
