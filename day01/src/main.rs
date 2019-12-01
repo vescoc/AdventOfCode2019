@@ -1,58 +1,66 @@
 #![feature(test)]
 extern crate test;
 
-use std::fs::File;
-use std::io;
-use std::io::prelude::*;
+#[macro_use]
+extern crate lazy_static;
 
-fn calculate_fuel(mass: i32) -> i32 {
-    mass / 3 - 2
+use std::iter;
+
+pub fn calculate_fuel(mass: u32) -> Option<u32> {
+    mass.checked_div(3).and_then(|v| v.checked_sub(2))
 }
 
-fn calculate_total_fuel(mass: i32) -> i32 {
+pub fn calculate_fuel_i(mass: u32) -> impl Iterator<Item = u32> {
+    iter::once(mass)
+}
+
+pub fn calculate_total_fuel(mass: u32) -> Option<u32> {
     let mut total = 0;
     let mut current = mass;
     loop {
-        current = calculate_fuel(current);
-        if current <= 0 {
-            break total;
-        } else {
-            total += current;
+        match calculate_fuel(current) {
+            Some(c) if c > 0 => {
+                current = c;
+                total += c;
+            }
+            _ => break Some(total),
         }
     }
 }
 
-#[allow(dead_code)]
-fn calculate_total_fuel_f(mass: i32) -> i32 {
+pub fn calculate_total_fuel_i(mass: u32) -> impl Iterator<Item = u32> {
+    iter::successors(Some(mass), |mass| {
+        mass.checked_div(3).and_then(|v| v.checked_sub(2))
+    })
+}
+
+pub fn calculate_total_fuel_f(mass: u32) -> Option<u32> {
     (0..)
-        .try_fold((mass, 0), |(mass, total), _| {
-            let current = calculate_fuel(mass);
-            if current <= 0 {
-                Err(total)
-            } else {
-                Ok((current, total + current))
-            }
+        .try_fold((mass, 0), |(mass, total), _| match calculate_fuel(mass) {
+            Some(c) if c > 0 => Ok((c, total + c)),
+            _ => Err(total),
         })
         .err()
-        .unwrap()
 }
 
-fn part(masses: &[i32], f: fn(i32) -> i32) -> i32 {
-    masses.iter().copied().map(f).sum()
+pub fn part(masses: &[u32], f: fn(u32) -> Option<u32>) -> u32 {
+    masses.iter().copied().flat_map(f).sum()
 }
 
-fn main() -> io::Result<()> {
-    let data = {
-        let mut contents = String::new();
-        File::open("data.txt")?.read_to_string(&mut contents)?;
-        contents
-            .lines()
-            .map(|l| l.parse().unwrap())
-            .collect::<Vec<i32>>()
-    };
+pub fn part_i<I: Iterator<Item = u32>>(masses: &[u32], f: fn(u32) -> I) -> u32 {
+    masses.iter().copied().flat_map(f).sum()
+}
 
-    println!("part 1: {}", part(&data, calculate_fuel));
-    println!("part 2: {}", part(&data, calculate_total_fuel));
+lazy_static! {
+    pub static ref DATA: Vec<u32> = include_str!("../data.txt")
+        .lines()
+        .map(|l| l.parse().unwrap())
+        .collect::<Vec<u32>>();
+}
+
+fn main() -> Result<(), ()> {
+    println!("part 1: {}", part(&DATA, calculate_fuel));
+    println!("part 2: {}", part(&DATA, calculate_total_fuel));
 
     Ok(())
 }
@@ -64,24 +72,24 @@ mod tests {
 
     #[test]
     fn example_1() {
-        assert_eq!(calculate_fuel(12), 2);
-        assert_eq!(calculate_fuel(14), 2);
-        assert_eq!(calculate_fuel(1969), 654);
-        assert_eq!(calculate_fuel(100756), 33583);
+        assert_eq!(calculate_fuel(12), Some(2));
+        assert_eq!(calculate_fuel(14), Some(2));
+        assert_eq!(calculate_fuel(1969), Some(654));
+        assert_eq!(calculate_fuel(100756), Some(33583));
     }
 
     #[test]
     fn example_2() {
-        assert_eq!(calculate_total_fuel(12), 2);
-        assert_eq!(calculate_total_fuel(1969), 966);
-        assert_eq!(calculate_total_fuel(100756), 50346);
+        assert_eq!(calculate_total_fuel(12), Some(2));
+        assert_eq!(calculate_total_fuel(1969), Some(966));
+        assert_eq!(calculate_total_fuel(100756), Some(50346));
     }
 
     #[test]
     fn example_2_f() {
-        assert_eq!(calculate_total_fuel_f(12), 2);
-        assert_eq!(calculate_total_fuel_f(1969), 966);
-        assert_eq!(calculate_total_fuel_f(100756), 50346);
+        assert_eq!(calculate_total_fuel_f(12), Some(2));
+        assert_eq!(calculate_total_fuel_f(1969), Some(966));
+        assert_eq!(calculate_total_fuel_f(100756), Some(50346));
     }
 
     #[bench]
@@ -97,5 +105,23 @@ mod tests {
     #[bench]
     fn bench_example_2_f(b: &mut Bencher) {
         b.iter(|| calculate_total_fuel_f(100756))
+    }
+
+    #[bench]
+    fn bench_part(b: &mut Bencher) {
+        b.iter(|| part(&DATA, calculate_fuel));
+        b.iter(|| part(&DATA, calculate_total_fuel));
+    }
+
+    #[bench]
+    fn bench_part_i(b: &mut Bencher) {
+        b.iter(|| part_i(&DATA, calculate_fuel_i));
+        b.iter(|| part_i(&DATA, calculate_total_fuel_i));
+    }
+
+    #[bench]
+    fn bench_part_f(b: &mut Bencher) {
+        b.iter(|| part(&DATA, calculate_fuel));
+        b.iter(|| part(&DATA, calculate_total_fuel_f));
     }
 }
