@@ -43,11 +43,7 @@ pub fn calculate_total_fuel_f(mass: u32) -> Option<u32> {
         .err()
 }
 
-pub fn part(masses: &[u32], f: fn(u32) -> Option<u32>) -> u32 {
-    masses.iter().copied().flat_map(f).sum()
-}
-
-pub fn part_i<I: Iterator<Item = u32>>(masses: &[u32], f: fn(u32) -> I) -> u32 {
+pub fn part<I: IntoIterator<Item = u32>>(masses: &[u32], f: fn(u32) -> I) -> u32 {
     masses.iter().copied().flat_map(f).sum()
 }
 
@@ -55,7 +51,7 @@ lazy_static! {
     pub static ref DATA: Vec<u32> = include_str!("../data.txt")
         .lines()
         .map(|l| l.parse().unwrap())
-        .collect::<Vec<u32>>();
+        .collect();
 }
 
 fn main() -> Result<(), ()> {
@@ -66,6 +62,7 @@ fn main() -> Result<(), ()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unreadable_literal)]
 mod tests {
     use super::*;
     use test::Bencher;
@@ -115,8 +112,8 @@ mod tests {
 
     #[bench]
     fn bench_part_i(b: &mut Bencher) {
-        b.iter(|| part_i(&DATA, calculate_fuel_i));
-        b.iter(|| part_i(&DATA, calculate_total_fuel_i));
+        b.iter(|| part(&DATA, calculate_fuel_i));
+        b.iter(|| part(&DATA, calculate_total_fuel_i));
     }
 
     #[bench]
