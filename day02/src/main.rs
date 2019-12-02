@@ -6,12 +6,13 @@ extern crate lazy_static;
 
 lazy_static! {
     pub static ref DATA: Vec<usize> = include_str!("../data.txt")
+        .trim()
         .split(',')
-        .flat_map(|s| s.parse().ok())
+        .map(|s| s.parse().unwrap())
         .collect();
 }
 
-pub fn execute(memory: &mut [usize]) -> Result<(), usize> {
+pub fn execute(memory: &mut [usize]) -> Result<usize, usize> {
     let mut index = 0;
     loop {
         match memory[index] {
@@ -23,7 +24,7 @@ pub fn execute(memory: &mut [usize]) -> Result<(), usize> {
                 memory[memory[index + 3]] = memory[memory[index + 1]] * memory[memory[index + 2]];
                 index += 4;
             }
-            99 => break Ok(()),
+            99 => break Ok(memory[0]),
             _ => break Err(index),
         }
     }
@@ -33,8 +34,7 @@ fn execute_with_input(noun: usize, verb: usize) -> Result<usize, usize> {
     let mut memory = DATA.clone();
     memory[1] = noun;
     memory[2] = verb;
-    execute(&mut memory)?;
-    Ok(memory[0])
+    execute(&mut memory)
 }
 
 fn part_1() -> usize {
@@ -63,6 +63,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test::Bencher;
 
     #[test]
     fn example_1_1() {
@@ -90,5 +91,15 @@ mod tests {
         let mut memory = vec![1, 1, 1, 4, 99, 5, 6, 0, 99];
         execute(&mut memory).unwrap();
         assert_eq!(memory, vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
+    }
+
+    #[bench]
+    fn bench_part_1(b: &mut Bencher) {
+        b.iter(|| part_1());
+    }
+
+    #[bench]
+    fn bench_part_2(b: &mut Bencher) {
+        b.iter(|| part_2());
     }
 }
