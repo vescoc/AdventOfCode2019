@@ -95,11 +95,11 @@ mod tests {
 
     #[bench]
     fn bench_part_1(b: &mut Bencher) {
-        b.iter(|| part_1());
+        b.iter(part_1);
     }
 
     #[bench]
     fn bench_part_2(b: &mut Bencher) {
-        b.iter(|| part_2());
+        b.iter(part_2);
     }
 }
