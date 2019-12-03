@@ -38,7 +38,7 @@ impl convert::From<(i32, i32)> for Point {
 
 impl cmp::Eq for Point {}
 
-type Path = (HashSet<Point>, HashMap<Point, u32>);
+type Path = HashMap<Point, u32>;
 
 const SEPARATOR: char = ',';
 
@@ -56,17 +56,19 @@ pub fn manhattan_distance(p1: &Point, p2: &Point) -> u32 {
 
 pub fn closest_intersection<'a>(path1: &'a Path, path2: &'a Path) -> &'a Point {
     path1
-        .0
-        .intersection(&path2.0)
+        .keys()
+        .collect::<HashSet<&Point>>()
+        .intersection(&path2.keys().collect::<HashSet<&Point>>())
         .min_by(|a, b| (a.abs()).cmp(&(b.abs())))
         .unwrap()
 }
 
 pub fn better_intersection<'a>(path1: &'a Path, path2: &'a Path) -> (&'a Point, u32) {
     path1
-        .0
-        .intersection(&path2.0)
-        .map(|p| (p, path1.1[p] + path2.1[p]))
+        .keys()
+        .collect::<HashSet<&Point>>()
+        .intersection(&path2.keys().collect::<HashSet<&Point>>())
+        .map(|p| (*p, path1[p] + path2[p]))
         .min_by(|(_, d1), (_, d2)| d1.cmp(d2))
         .unwrap()
 }
@@ -91,11 +93,9 @@ pub fn make_path<'a>(actions: impl Iterator<Item = &'a str>) -> Path {
             Some((1..=steps).map(move |c| ((x + c as i32 * dx, y + c as i32 * dy), s + c)))
         })
         .flatten()
-        .fold((HashSet::new(), HashMap::new()), |mut acc, p| {
-            acc.0.insert(Point::from(p.0));
-            acc.1
+        .fold(HashMap::new(), |mut acc, p| {
+            acc
                 .entry(Point::from(p.0))
-                .and_modify(|e| *e = cmp::min(*e, p.1))
                 .or_insert(p.1);
             acc
         })
