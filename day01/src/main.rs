@@ -11,7 +11,7 @@ pub fn calculate_fuel(mass: u32) -> Option<u32> {
 }
 
 pub fn calculate_fuel_i(mass: u32) -> impl Iterator<Item = u32> {
-    iter::once(mass)
+    iter::once(mass / 3 - 2)
 }
 
 pub fn calculate_total_fuel(mass: u32) -> Option<u32> {
@@ -29,9 +29,11 @@ pub fn calculate_total_fuel(mass: u32) -> Option<u32> {
 }
 
 pub fn calculate_total_fuel_i(mass: u32) -> impl Iterator<Item = u32> {
-    iter::successors(Some(mass), |mass| {
+    let f = |mass: &u32| {
         mass.checked_div(3).and_then(|v| v.checked_sub(2))
-    })
+    };
+    
+    iter::successors(f(&mass), f)
 }
 
 pub fn calculate_total_fuel_f(mass: u32) -> Option<u32> {
@@ -76,6 +78,14 @@ mod tests {
     }
 
     #[test]
+    fn example_1_i() {
+        assert_eq!(calculate_fuel_i(12).next(), Some(2));
+        assert_eq!(calculate_fuel_i(14).next(), Some(2));
+        assert_eq!(calculate_fuel_i(1969).next(), Some(654));
+        assert_eq!(calculate_fuel_i(100756).next(), Some(33583));
+    }
+
+    #[test]
     fn example_2() {
         assert_eq!(calculate_total_fuel(12), Some(2));
         assert_eq!(calculate_total_fuel(1969), Some(966));
@@ -83,10 +93,35 @@ mod tests {
     }
 
     #[test]
+    fn example_2_i() {
+        assert_eq!(calculate_total_fuel_i(12).sum::<u32>(), 2);
+        assert_eq!(calculate_total_fuel_i(1969).sum::<u32>(), 966);
+        assert_eq!(calculate_total_fuel_i(100756).sum::<u32>(), 50346);
+    }
+
+    #[test]
     fn example_2_f() {
         assert_eq!(calculate_total_fuel_f(12), Some(2));
         assert_eq!(calculate_total_fuel_f(1969), Some(966));
         assert_eq!(calculate_total_fuel_f(100756), Some(50346));
+    }
+
+    #[test]
+    fn same_results_1() {
+        let n = part(&DATA, calculate_fuel);
+        let i = part(&DATA, calculate_fuel_i);
+
+        assert_eq!(n, i);
+    }
+
+    #[test]
+    fn same_results_2() {
+        let n = part(&DATA, calculate_total_fuel);
+        let i = part(&DATA, calculate_total_fuel_i);
+        let f = part(&DATA, calculate_total_fuel_f);
+
+        assert_eq!(n, i);
+        assert_eq!(n, f);
     }
 
     #[bench]
