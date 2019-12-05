@@ -9,7 +9,9 @@ use std::collections::{HashMap, HashSet};
 use std::convert;
 use std::ops;
 
-#[derive(PartialEq, Hash)]
+use serde_derive::{Deserialize, Serialize};
+
+#[derive(PartialEq, Hash, Deserialize, Serialize, Debug, Clone, Copy)]
 pub struct Point(i32,i32);
 
 impl Point {
@@ -17,14 +19,17 @@ impl Point {
         Self(x, y)
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn abs(&self) -> u32 {
         (self.0.abs() + self.1.abs()) as u32
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn x(&self) -> i32 {
         self.0
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn y(&self) -> i32 {
         self.1
     }
@@ -38,6 +43,13 @@ impl ops::Sub for &Point {
     }
 }
 
+impl ops::AddAssign for Point {
+    fn add_assign(&mut self, point: Point) {
+        self.0 += point.0;
+        self.1 += point.1;
+    }
+}
+
 impl convert::From<(i32, i32)> for Point {
     fn from((x, y): (i32, i32)) -> Self {
         Self::new(x, y)
@@ -48,16 +60,19 @@ impl cmp::Eq for Point {}
 
 type Path = (HashSet<Point>, HashMap<Point, u32>);
 
-const SEPARATOR: char = ',';
+pub const SEPARATOR: char = ',';
 
 lazy_static! {
-    pub static ref DATA: Vec<Path> = include_str!("../data.txt")
+    pub static ref INPUT: &'static str = include_str!("../data.txt");
+    
+    pub static ref DATA: Vec<Path> = INPUT
         .lines()
         .map(|l| make_path(l.trim().split(SEPARATOR)))
         .collect();
     pub static ref ORIGIN: Point = Point::new(0, 0);
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
 pub fn manhattan_distance(p1: &Point, p2: &Point) -> u32 {
     (p1 - p2).abs()
 }

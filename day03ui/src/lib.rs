@@ -1,36 +1,30 @@
 extern crate day03;
 
-use day03::*;
 use stdweb::web::{html_element::CanvasElement, CanvasRenderingContext2d};
 use yew::{
     html,
-    services::{render::RenderTask, ConsoleService, RenderService},
-    Callback, Component, ComponentLink, Html, NodeRef, ShouldRender,
+    worker::*,
+    Component, ComponentLink, Html, NodeRef, ShouldRender,
 };
+
+mod worker;
 
 const OFFSET_X: f64 = 250.0;
 const OFFSET_Y: f64 = 250.0;
 const SCALE: f64 = 50.0;
 
 pub struct Model {
-    console: ConsoleService,
-    render: RenderService,
-    visible: bool,
-    part_1: u32,
-    part_2: u32,
+    worker: Box<dyn Bridge<worker::Worker>>,
     canvas_ref: NodeRef,
-    render_task: Option<RenderTask>,
-    render_callback: Callback<f64>,
-    path_1: Vec<&'static Point>,
-    path_2: Vec<&'static Point>,
-    index: usize,
+    part_1: Option<u32>,
+    part_2: Option<u32>,
 }
 
 pub enum Msg {
     Start,
     Reset,
     Render,
-    Frame,
+    Worker(worker::Response),
 }
 
 impl Component for Model {
@@ -39,41 +33,29 @@ impl Component for Model {
 
     fn create(_: (), mut link: ComponentLink<Self>) -> Self {
         link.send_self(Msg::Render);
-        let mut r = Self {
-            console: ConsoleService::new(),
-            render: RenderService::new(),
-            visible: false,
-            part_1: 0,
-            part_2: 0,
+        
+        let callback = link.send_back(Msg::Worker);
+        let worker = worker::Worker::bridge(callback);
+            
+        Self {
+            worker,
+            part_1: None,
+            part_2: None,
             canvas_ref: NodeRef::default(),
-            render_task: None,
-            render_callback: link.send_back(|_| Msg::Frame),
-            path_1: DATA[0].0.iter().collect(),
-            path_2: DATA[1].0.iter().collect(),
-            index: 0,
-        };
-
-        r.console.log(&format!("path_1 len {}", r.path_1.len()));
-        r.console.log(&format!("path_2 len {}", r.path_2.len()));
-
-        r
+        }
     }
 
     fn update(&mut self, msg: Msg) -> ShouldRender {
         match msg {
             Msg::Start => {
-                self.part_1 = part_1();
-                self.part_2 = part_2();
-
-                self.visible = true;
-
-                self.console.log(&format!("part_1: {}", self.part_1));
-                self.console.log(&format!("part_2: {}", self.part_2));
+                self.worker.send(worker::Request::GetPart1);
+                self.worker.send(worker::Request::GetPart2);
 
                 true
             }
             Msg::Reset => {
-                self.visible = false;
+                self.part_1 = None;
+                self.part_2 = None;
 
                 true
             }
@@ -85,56 +67,51 @@ impl Component for Model {
 
                     context.set_fill_style_color("black");
                     context.fill_rect(OFFSET_X, OFFSET_Y, 5.0, 5.0);
+                }
 
-                    self.render_task = Some(
-                        self.render
-                            .request_animation_frame(self.render_callback.clone()),
+                self.worker.send(worker::Request::GetWireInfos);
+                
+                false
+            }
+            Msg::Worker(worker::Response::WireInfo1(p)) => {
+                if let Some(canvas) = self.canvas_ref.try_into::<CanvasElement>() {
+                    let context: CanvasRenderingContext2d = canvas.get_context().unwrap();
+
+                    context.set_fill_style_color("blue");
+                    context.fill_rect(
+                        OFFSET_X + p.x() as f64 / SCALE,
+                        OFFSET_Y - p.y() as f64 / SCALE,
+                        1.,
+                        1.,
                     );
                 }
 
                 false
             }
-            Msg::Frame => {
+            Msg::Worker(worker::Response::WireInfo2(p)) => {
                 if let Some(canvas) = self.canvas_ref.try_into::<CanvasElement>() {
                     let context: CanvasRenderingContext2d = canvas.get_context().unwrap();
 
-                    if let Some(p) = self.path_1.get(self.index) {
-                        context.set_fill_style_color("blue");
-                        context.fill_rect(
-                            OFFSET_X + p.x() as f64 / SCALE,
-                            OFFSET_Y - p.y() as f64 / SCALE,
-                            1.,
-                            1.,
-                        );
-                    }
-
-                    if let Some(p) = self.path_2.get(self.index) {
-                        context.set_fill_style_color("red");
-                        context.fill_rect(
-                            OFFSET_X + p.x() as f64 / SCALE,
-                            OFFSET_Y - p.y() as f64 / SCALE,
-                            1.,
-                            1.,
-                        );
-                    }
-
-                    self.index += 1;
-
-                    if self.index < self.path_1.len() || self.index < self.path_2.len() {
-                        if self.index % 1000 == 0 && self.index != 0 {
-                            self.console.log(&format!("Frame: {}", self.index));
-                        }
-
-                        self.render_task = Some(
-                            self.render
-                                .request_animation_frame(self.render_callback.clone()),
-                        );
-                    } else {
-                        self.console.log(&format!("Frame done: {}", self.index));
-                    }
+                    context.set_fill_style_color("red");
+                    context.fill_rect(
+                        OFFSET_X + p.x() as f64 / SCALE,
+                        OFFSET_Y - p.y() as f64 / SCALE,
+                        1.,
+                        1.,
+                    );
                 }
 
                 false
+            }
+            Msg::Worker(worker::Response::Part1(value)) => {
+                self.part_1 = Some(value);
+                
+                true
+            }
+            Msg::Worker(worker::Response::Part2(value)) => {
+                self.part_2 = Some(value);
+                
+                true
             }
         }
     }
@@ -144,11 +121,12 @@ impl Component for Model {
     }
 
     fn view(&self) -> Html<Self> {
-        let data = if self.visible {
+        let have_data = self.part_1.is_some() && self.part_2.is_some();
+        let data = if have_data {
             html! {
                 <ol>
-                <li><p>{ format!("{:?}", self.part_1) }</p></li>
-                <li><p>{ format!("{:?}", self.part_2) }</p></li>
+                <li><p>{ self.part_1.unwrap() }</p></li>
+                <li><p>{ self.part_2.unwrap() }</p></li>
                 </ol>
             }
         } else {
@@ -158,8 +136,8 @@ impl Component for Model {
         html! {
             <div>
                 <nav class="menu">
-                <button disabled=self.visible onclick=|_| Msg::Start>{ "Start" }</button>
-                <button disabled=!self.visible onclick=|_| Msg::Reset>{ "Reset" }</button>
+                <button disabled=have_data onclick=|_| Msg::Start>{ "Start" }</button>
+                <button disabled=!have_data onclick=|_| Msg::Reset>{ "Reset" }</button>
                 </nav>
             { data }
             <canvas ref=self.canvas_ref.clone() style="border: 2px solid black" width="500" height="500"></canvas>
