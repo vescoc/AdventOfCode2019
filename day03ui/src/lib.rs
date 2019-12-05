@@ -1,9 +1,12 @@
 extern crate day03;
 
+use std::thread;
+
 use stdweb::web::{html_element::CanvasElement, CanvasRenderingContext2d};
 use yew::{
     html,
     worker::*,
+    services::ConsoleService,
     Component, ComponentLink, Html, NodeRef, ShouldRender,
 };
 
@@ -14,6 +17,7 @@ const OFFSET_Y: f64 = 250.0;
 const SCALE: f64 = 50.0;
 
 pub struct Model {
+    console: ConsoleService,
     worker: Box<dyn Bridge<worker::Worker>>,
     canvas_ref: NodeRef,
     part_1: Option<u32>,
@@ -38,6 +42,7 @@ impl Component for Model {
         let worker = worker::Worker::bridge(callback);
             
         Self {
+            console: ConsoleService::new(),
             worker,
             part_1: None,
             part_2: None,
@@ -48,6 +53,8 @@ impl Component for Model {
     fn update(&mut self, msg: Msg) -> ShouldRender {
         match msg {
             Msg::Start => {
+                self.console.log(&format!("update thread {:?}", thread::current().id()));
+                         
                 self.worker.send(worker::Request::GetPart1);
                 self.worker.send(worker::Request::GetPart2);
 
@@ -60,6 +67,8 @@ impl Component for Model {
                 true
             }
             Msg::Render => {
+                self.console.log(&format!("update thread {:?}", thread::current().id()));
+                         
                 if let Some(canvas) = self.canvas_ref.try_into::<CanvasElement>() {
                     let context: CanvasRenderingContext2d = canvas.get_context().unwrap();
 
