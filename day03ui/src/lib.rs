@@ -10,7 +10,7 @@ use yew::{
     Component, ComponentLink, Html, NodeRef, ShouldRender,
 };
 
-mod worker;
+pub mod worker;
 
 const OFFSET_X: f64 = 250.0;
 const OFFSET_Y: f64 = 250.0;
@@ -18,6 +18,7 @@ const SCALE: f64 = 50.0;
 
 pub struct Model {
     console: ConsoleService,
+    link: ComponentLink<Model>,
     worker: Box<dyn Bridge<worker::Worker>>,
     canvas_ref: NodeRef,
     part_1: Option<u32>,
@@ -36,13 +37,12 @@ impl Component for Model {
     type Properties = ();
 
     fn create(_: (), mut link: ComponentLink<Self>) -> Self {
-        link.send_self(Msg::Render);
-        
         let callback = link.send_back(Msg::Worker);
         let worker = worker::Worker::bridge(callback);
             
         Self {
             console: ConsoleService::new(),
+            link,
             worker,
             part_1: None,
             part_2: None,
@@ -126,6 +126,8 @@ impl Component for Model {
     }
 
     fn mounted(&mut self) -> ShouldRender {
+        self.link.send_self(Msg::Render);
+        
         false
     }
 

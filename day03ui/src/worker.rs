@@ -27,7 +27,7 @@ pub struct Worker {
 }
 
 impl Agent for Worker {
-    type Reach = Job;
+    type Reach = Public;
     type Message = ();
     type Input = Request;
     type Output = Response;
@@ -75,6 +75,10 @@ impl Agent for Worker {
                 }
             }
         }
+    }
+
+    fn name_of_resource() -> &'static str {
+        "bin/worker.js"
     }
 }
 
