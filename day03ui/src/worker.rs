@@ -27,7 +27,12 @@ pub struct Worker {
 }
 
 impl Agent for Worker {
+    #[cfg(feature = "native-worker")]
     type Reach = Public;
+    
+    #[cfg(not(feature = "native-worker"))]
+    type Reach = Job;
+
     type Message = ();
     type Input = Request;
     type Output = Response;
@@ -77,6 +82,7 @@ impl Agent for Worker {
         }
     }
 
+    #[cfg(feature = "native-worker")]
     fn name_of_resource() -> &'static str {
         "bin/worker.js"
     }
