@@ -2,9 +2,11 @@
 extern crate test;
 
 use std::cmp::Eq;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::iter;
+use std::ops;
 
 #[macro_use]
 extern crate lazy_static;
@@ -54,6 +56,10 @@ impl<T: Debug> Node<T> {
 
     pub fn parent(&self) -> &Option<NodeRef> {
         &self.parent
+    }
+
+    pub fn data(&self) -> &T {
+        &self.data
     }
 }
 
@@ -130,6 +136,51 @@ where
     }
 }
 
+impl<T> ops::Index<NodeRef> for Forest<T>
+where
+    T: Eq + Hash + Copy + Debug,
+{
+    type Output = Node<T>;
+
+    fn index(&self, node_ref: NodeRef) -> &Node<T> {
+        &self.arena[node_ref]
+    }
+}
+
+pub fn breadth_first_search<S, M, F, I>(
+    start_state: S,
+    goal: fn(&S) -> bool,
+    next_states: F,
+) -> Result<(S, Vec<M>), ()>
+where
+    F: Fn(&S) -> I,
+    I: Iterator<Item = (S, M)>,
+    S: Eq + Hash + Copy,
+    M: Copy,
+{
+    let mut q = VecDeque::new();
+    q.push_back((start_state, vec![]));
+
+    let mut visited = HashSet::new();
+    visited.insert(start_state);
+
+    while let Some((state, moves)) = q.pop_front() {
+        if goal(&state) {
+            return Ok((state, moves));
+        }
+
+        for (state, m) in next_states(&state) {
+            if !visited.contains(&state) {
+                let moves = moves.iter().copied().chain(iter::once(m)).collect();
+                q.push_back((state, moves));
+                visited.insert(state);
+            }
+        }
+    }
+
+    Err(())
+}
+
 pub fn part_1() -> u32 {
     DATA.visit(*ROOT, HashMap::new(), |mut state, (r, node)| {
         if let Some(parent) = node.parent() {
@@ -143,6 +194,55 @@ pub fn part_1() -> u32 {
     .iter()
     .map(|(_, value)| value)
     .sum()
+}
+
+pub fn part_2() -> u32 {
+    let (d, i) = DATA.visit(
+        *ROOT,
+        (
+            HashMap::<&str, Vec<&str>>::new(),
+            HashMap::<&str, Vec<&str>>::new(),
+        ),
+        |(mut d, mut i), (_, node)| {
+            if let Some(parent) = node.parent() {
+                let data = node.data();
+                let parent_data = DATA[*parent].data();
+
+                d.entry(data.to_owned())
+                    .and_modify(|v| {
+                        v.push(parent_data.to_owned());
+                    })
+                    .or_insert_with(|| vec![parent_data.to_owned()]);
+
+                i.entry(parent_data.to_owned())
+                    .and_modify(|v| {
+                        v.push(data.to_owned());
+                    })
+                    .or_insert_with(|| vec![data.to_owned()]);
+            }
+
+            (d, i)
+        },
+    );
+
+    let empty = vec![];
+
+    breadth_first_search(
+        "YOU",
+        |state| state.eq(&"SAN"),
+        |state| {
+            d.get(state)
+                .unwrap_or_else(|| &empty)
+                .iter()
+                .chain(i.get(state).unwrap_or_else(|| &empty).iter())
+                .map(|n| (*n, 1))
+        },
+    )
+    .expect("no solution")
+    .1
+    .iter()
+    .sum::<u32>()
+        - 2
 }
 
 #[cfg(test)]
