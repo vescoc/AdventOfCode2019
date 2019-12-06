@@ -14,23 +14,7 @@ extern crate lazy_static;
 const SEPARATOR: char = ')';
 
 lazy_static! {
-    pub static ref DATA: Forest<&'static str> = {
-        include_str!("../data.txt")
-            .lines()
-            .try_fold(Forest::new(), |acc, l| {
-                let mut i = l.trim().split(SEPARATOR);
-                match (i.next(), i.next()) {
-                    (Some(parent), Some(child)) => {
-                        let (acc, parent_ref) = acc.add_node(parent);
-                        let (acc, child_ref) = acc.add_node(child);
-                        let (acc, _) = acc.add_relationship(parent_ref, child_ref);
-                        Ok(acc)
-                    }
-                    _ => Err(format!("Invalid separator / data: {}", l)),
-                }
-            })
-            .expect("invalid data")
-    };
+    pub static ref DATA: Forest<&'static str> = parse(include_str!("../data.txt"));
     pub static ref ROOT: NodeRef = { DATA.roots().next().unwrap() };
 }
 
@@ -85,19 +69,19 @@ where
         }
     }
 
-    pub fn add_node(mut self, data: T) -> (Self, NodeRef) {
+    pub fn add_node(&mut self, data: T) -> NodeRef {
         if let Some(&node_ref) = self.map.get(&data) {
-            (self, node_ref)
+            node_ref
         } else {
             let node_ref = self.arena.len();
             self.arena.push(Node::new(data));
             self.map.insert(data, node_ref);
 
-            (self, node_ref)
+            node_ref
         }
     }
 
-    pub fn add_relationship(mut self, parent: NodeRef, child: NodeRef) -> (Self, bool) {
+    pub fn add_relationship(&mut self, parent: NodeRef, child: NodeRef) -> bool {
         if let Some(last_child) = self.arena[parent].last_child {
             self.arena[last_child].sibling = Some(child);
         } else {
@@ -106,7 +90,7 @@ where
         self.arena[parent].last_child = Some(child);
         self.arena[child].parent = Some(parent);
 
-        (self, true)
+        true
     }
 
     pub fn roots<'a>(&'a self) -> impl Iterator<Item = NodeRef> + 'a {
@@ -147,6 +131,23 @@ where
     }
 }
 
+fn parse(s: &str) -> Forest<&str> {
+    s.lines()
+        .try_fold(Forest::new(), |mut acc, l| {
+            let mut i = l.trim().split(SEPARATOR);
+            match (i.next(), i.next()) {
+                (Some(parent), Some(child)) => {
+                    let parent_ref = acc.add_node(parent);
+                    let child_ref = acc.add_node(child);
+                    acc.add_relationship(parent_ref, child_ref);
+                    Ok(acc)
+                }
+                _ => Err(format!("Invalid separator / data: {}", l)),
+            }
+        })
+        .expect("invalid data")
+}
+
 pub fn breadth_first_search<S, M, F, I>(
     start_state: S,
     goal: fn(&S) -> bool,
@@ -181,24 +182,25 @@ where
     Err(())
 }
 
-pub fn part_1() -> u32 {
-    DATA.visit(*ROOT, HashMap::new(), |mut state, (r, node)| {
-        if let Some(parent) = node.parent() {
-            state.insert(r, state[parent] + 1);
-        } else {
-            state.insert(r, 0);
-        }
+pub fn solve_1(root: NodeRef, forest: &Forest<&str>) -> u32 {
+    forest
+        .visit(root, HashMap::new(), |mut state, (r, node)| {
+            if let Some(parent) = node.parent() {
+                state.insert(r, state[parent] + 1);
+            } else {
+                state.insert(r, 0);
+            }
 
-        state
-    })
-    .iter()
-    .map(|(_, value)| value)
-    .sum()
+            state
+        })
+        .iter()
+        .map(|(_, value)| value)
+        .sum()
 }
 
-pub fn part_2() -> u32 {
-    let (d, i) = DATA.visit(
-        *ROOT,
+pub fn solve_2(root: NodeRef, forest: &Forest<&str>) -> u32 {
+    let (d, i) = forest.visit(
+        root,
         (
             HashMap::<&str, Vec<&str>>::new(),
             HashMap::<&str, Vec<&str>>::new(),
@@ -206,7 +208,7 @@ pub fn part_2() -> u32 {
         |(mut d, mut i), (_, node)| {
             if let Some(parent) = node.parent() {
                 let data = node.data();
-                let parent_data = DATA[*parent].data();
+                let parent_data = forest[*parent].data();
 
                 d.entry(data.to_owned())
                     .and_modify(|v| {
@@ -245,6 +247,14 @@ pub fn part_2() -> u32 {
         - 2
 }
 
+pub fn part_1() -> u32 {
+    solve_1(*ROOT, &DATA)
+}
+
+pub fn part_2() -> u32 {
+    solve_2(*ROOT, &DATA)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,32 +262,32 @@ mod tests {
 
     #[test]
     fn test_forest() {
-        let forest = Forest::new();
-        let (forest, root) = forest.add_node("parent");
-        let (forest, child) = forest.add_node("child");
-        let (forest, _) = forest.add_relationship(root, child);
+        let mut forest = Forest::new();
+        let root = forest.add_node("parent");
+        let child = forest.add_node("child");
+        forest.add_relationship(root, child);
 
         assert_eq!(forest.roots().collect::<Vec<NodeRef>>(), vec![root]);
     }
 
     #[test]
     fn test_visit_count() {
-        let forest = Forest::new();
-        let (forest, root) = forest.add_node("parent");
-        let (forest, child) = forest.add_node("child");
-        let (forest, _) = forest.add_relationship(root, child);
+        let mut forest = Forest::new();
+        let root = forest.add_node("parent");
+        let child = forest.add_node("child");
+        forest.add_relationship(root, child);
 
         assert_eq!(forest.visit(root, 0, |state, _| { state + 1 }), 2);
     }
 
     #[test]
     fn test_visit_paths() {
-        let forest = Forest::new();
-        let (forest, root) = forest.add_node("parent");
-        let (forest, child) = forest.add_node("child");
-        let (forest, grandchild) = forest.add_node("grandchild");
-        let (forest, _) = forest.add_relationship(root, child);
-        let (forest, _) = forest.add_relationship(child, grandchild);
+        let mut forest = Forest::new();
+        let root = forest.add_node("parent");
+        let child = forest.add_node("child");
+        let grandchild = forest.add_node("grandchild");
+        forest.add_relationship(root, child);
+        forest.add_relationship(child, grandchild);
 
         assert_eq!(
             forest.visit(root, HashMap::new(), |mut state, (r, node)| {
@@ -295,8 +305,53 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_example_1() {
+        let forest = parse(
+            r#"COM)B
+B)C
+C)D
+D)E
+E)F
+B)G
+G)H
+D)I
+E)J
+J)K
+K)L"#,
+        );
+
+        assert_eq!(solve_1(forest.roots().next().unwrap(), &forest), 42);
+    }
+
+    #[test]
+    fn test_example_2() {
+        let forest = parse(
+            r#"COM)B
+B)C
+C)D
+D)E
+E)F
+B)G
+G)H
+D)I
+E)J
+J)K
+K)L
+K)YOU
+I)SAN"#,
+        );
+
+        assert_eq!(solve_2(forest.roots().next().unwrap(), &forest), 4);
+    }
+
     #[bench]
     fn bench_part_1(b: &mut Bencher) {
         b.iter(part_1);
+    }
+
+    #[bench]
+    fn bench_part_2(b: &mut Bencher) {
+        b.iter(part_2);
     }
 }
