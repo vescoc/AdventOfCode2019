@@ -6,6 +6,7 @@ extern crate lazy_static;
 
 use itertools::Itertools;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 
 const SEPARATOR: char = ',';
 
@@ -50,23 +51,21 @@ lazy_static! {
     static ref DATA: Vec<Memory> = parse(include_str!("../data.txt"));
 }
 
-pub struct CPU<'a> {
-    memory: &'a mut [Memory],
+pub struct CPU {
+    memory: Vec<Memory>,
     ip: usize,
     input: Option<Memory>,
 }
 
-impl<'a> CPU<'a> {
-    pub fn new(memory: &'a mut [Memory], ip: usize, input: Option<Memory>) -> Self {
+impl CPU {
+    pub fn new(memory: Vec<Memory>, ip: usize, input: Option<Memory>) -> Self {
         Self { memory, ip, input }
     }
 
     pub fn step(&mut self) -> Result<Step, Error> {
-        let opcode = self
-            .memory
-            .get(self.ip)
-            .ok_or_else(|| Error::EOF)?
-            .to_owned() as Opcode;
+        let memory = self.memory.as_mut_slice();
+
+        let opcode = memory.get(self.ip).ok_or_else(|| Error::EOF)?.to_owned() as Opcode;
 
         let opcode_mode = |i| match i {
             0 => Ok(OpcodeMode::Positional),
@@ -99,11 +98,10 @@ impl<'a> CPU<'a> {
         match opcode % 100 {
             1 => {
                 write(
-                    self.memory,
+                    memory,
                     self.ip + 3,
                     mode(3)?,
-                    read(self.memory, self.ip + 1, mode(1)?)?
-                        + read(self.memory, self.ip + 2, mode(2)?)?,
+                    read(memory, self.ip + 1, mode(1)?)? + read(memory, self.ip + 2, mode(2)?)?,
                 )?;
                 self.ip += 4;
 
@@ -111,11 +109,10 @@ impl<'a> CPU<'a> {
             }
             2 => {
                 write(
-                    self.memory,
+                    memory,
                     self.ip + 3,
                     mode(3)?,
-                    read(self.memory, self.ip + 1, mode(1)?)?
-                        * read(self.memory, self.ip + 2, mode(2)?)?,
+                    read(memory, self.ip + 1, mode(1)?)? * read(memory, self.ip + 2, mode(2)?)?,
                 )?;
                 self.ip += 4;
 
@@ -123,7 +120,7 @@ impl<'a> CPU<'a> {
             }
             3 => {
                 if let Some(input) = self.input {
-                    write(self.memory, self.ip + 1, OpcodeMode::Positional, input)?;
+                    write(memory, self.ip + 1, OpcodeMode::Positional, input)?;
                     self.input = None;
                     self.ip += 2;
 
@@ -133,14 +130,14 @@ impl<'a> CPU<'a> {
                 }
             }
             4 => {
-                let output = read(self.memory, self.ip + 1, mode(1)?)?;
+                let output = read(memory, self.ip + 1, mode(1)?)?;
                 self.ip += 2;
 
                 Ok(Step::Output(output))
             }
             5 => {
-                self.ip = if read(self.memory, self.ip + 1, mode(1)?)? != 0 {
-                    read(self.memory, self.ip + 2, mode(2)?)? as usize
+                self.ip = if read(memory, self.ip + 1, mode(1)?)? != 0 {
+                    read(memory, self.ip + 2, mode(2)?)? as usize
                 } else {
                     self.ip + 3
                 };
@@ -148,8 +145,8 @@ impl<'a> CPU<'a> {
                 Ok(Step::Continue)
             }
             6 => {
-                self.ip = if read(self.memory, self.ip + 1, mode(1)?)? == 0 {
-                    read(self.memory, self.ip + 2, mode(2)?)? as usize
+                self.ip = if read(memory, self.ip + 1, mode(1)?)? == 0 {
+                    read(memory, self.ip + 2, mode(2)?)? as usize
                 } else {
                     self.ip + 3
                 };
@@ -157,29 +154,29 @@ impl<'a> CPU<'a> {
                 Ok(Step::Continue)
             }
             7 => {
-                let value = if read(self.memory, self.ip + 1, mode(1)?)?
-                    < read(self.memory, self.ip + 2, mode(2)?)?
+                let value = if read(memory, self.ip + 1, mode(1)?)?
+                    < read(memory, self.ip + 2, mode(2)?)?
                 {
                     1
                 } else {
                     0
                 };
 
-                write(self.memory, self.ip + 3, mode(3)?, value)?;
+                write(memory, self.ip + 3, mode(3)?, value)?;
                 self.ip += 4;
 
                 Ok(Step::Continue)
             }
             8 => {
-                let value = if read(self.memory, self.ip + 1, mode(1)?)?
-                    == read(self.memory, self.ip + 2, mode(2)?)?
+                let value = if read(memory, self.ip + 1, mode(1)?)?
+                    == read(memory, self.ip + 2, mode(2)?)?
                 {
                     1
                 } else {
                     0
                 };
 
-                write(self.memory, self.ip + 3, mode(3)?, value)?;
+                write(memory, self.ip + 3, mode(3)?, value)?;
                 self.ip += 4;
 
                 Ok(Step::Continue)
@@ -190,14 +187,10 @@ impl<'a> CPU<'a> {
         }
     }
 
-    pub fn dump_memory(&self) -> Vec<Memory> {
-        self.memory.iter().copied().collect()
-    }
-
-    pub fn fork(cpu: &CPU, memory: &'a mut [Memory], input: Option<Memory>) -> Self {
+    pub fn fork(&self, input: Option<Memory>) -> Self {
         Self {
-            memory,
-            ip: cpu.ip,
+            memory: self.memory.to_owned(),
+            ip: self.ip,
             input,
         }
     }
@@ -212,35 +205,39 @@ impl<'a> CPU<'a> {
     }
 }
 
-pub fn solve_1(base_memory: &[Memory]) -> (Memory, Vec<u32>) {
-    let mut base_memory = base_memory.to_owned();
-
-    let mut base_cpu = CPU::new(base_memory.as_mut_slice(), 0, None);
+pub fn solve_1(base_memory: &[Memory]) -> (Memory, Vec<usize>) {
+    let mut base_cpu = CPU::new(base_memory.to_owned(), 0, None);
     match base_cpu.run() {
         Ok(Step::NeedInput) => {}
         s => panic!("invalid state {:?}", s),
     }
 
-    (0u32..5u32)
+    let cpus = (0usize..5usize)
+        .try_fold(HashMap::new(), |mut acc, i| {
+            let mut cpu = base_cpu.fork(Some(i as Memory));
+
+            match cpu.run() {
+                Ok(Step::NeedInput) => {
+                    acc.insert(i, cpu);
+                    Ok(acc)
+                }
+                Err(e) => Err(e),
+                _ => unreachable!(),
+            }
+        })
+        .unwrap_or_else(|e| panic!("invalid data: {:?}", e));
+
+    (0usize..5usize)
         .permutations(5)
         .try_fold(
             (std::i64::MIN, vec![]),
             |(current_max, current_permutation), p| {
                 p.iter()
-                    .try_fold(0, |acc, &i| {
-                        let mut memory = base_cpu.dump_memory();
-                        let mut cpu =
-                            CPU::fork(&base_cpu, memory.as_mut_slice(), Some(i as Memory));
+                    .try_fold(0, |acc, i| {
+                        let mut cpu = cpus[i].fork(Some(acc));
 
                         match cpu.run() {
-                            Ok(Step::NeedInput) => {
-                                cpu.input = Some(acc);
-                                match cpu.run() {
-                                    Ok(Step::Output(value)) => Ok(value),
-                                    Err(e) => Err(e),
-                                    _ => unreachable!(),
-                                }
-                            }
+                            Ok(Step::Output(value)) => Ok(value),
                             Err(e) => Err(e),
                             _ => unreachable!(),
                         }
@@ -269,9 +266,9 @@ mod tests {
 
     #[test]
     fn test_step() {
-        let mut memory = parse(r#"3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0"#);
+        let memory = parse(r#"3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0"#);
 
-        let mut cpu = CPU::new(memory.as_mut_slice(), 0, None);
+        let mut cpu = CPU::new(memory.to_owned(), 0, None);
 
         loop {
             match cpu.step() {
@@ -282,13 +279,15 @@ mod tests {
         }
 
         println!("test_step ip: {}", cpu.ip);
+
+        assert_eq!(memory.last(), Some(&0));
     }
 
     #[test]
     fn test_step_with_input() {
-        let mut memory = parse(r#"3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0"#);
+        let memory = parse(r#"3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0"#);
 
-        let mut cpu = CPU::new(memory.as_mut_slice(), 0, Some(0));
+        let mut cpu = CPU::new(memory, 0, Some(0));
 
         loop {
             match cpu.step() {
