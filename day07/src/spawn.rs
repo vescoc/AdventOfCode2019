@@ -1,7 +1,9 @@
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::sync::mpsc;
+use std::thread;
 
-use crate::intcode::{CPU, Step, Memory};
+use crate::intcode::{Memory, Step, CPU};
 use crate::DATA;
 
 pub fn solve_1(base_memory: &[Memory]) -> (Memory, Vec<usize>) {
@@ -31,12 +33,12 @@ pub fn solve_1(base_memory: &[Memory]) -> (Memory, Vec<usize>) {
         .try_fold(
             (std::i64::MIN, vec![]),
             |(current_max, current_permutation), p| {
-                let channel_a = std::sync::mpsc::channel();
-                let channel_b = std::sync::mpsc::channel();
-                let channel_c = std::sync::mpsc::channel();
-                let channel_d = std::sync::mpsc::channel();
-                let channel_e = std::sync::mpsc::channel();
-                let channel_output = std::sync::mpsc::channel();
+                let channel_a = mpsc::channel();
+                let channel_b = mpsc::channel();
+                let channel_c = mpsc::channel();
+                let channel_d = mpsc::channel();
+                let channel_e = mpsc::channel();
+                let channel_output = mpsc::channel();
 
                 let cpu_a = cpus[&p[0]]
                     .copy_with_input(None)
@@ -118,16 +120,19 @@ pub fn solve_2(base_memory: &[Memory]) -> (Memory, Vec<usize>) {
         .try_fold(
             (std::i64::MIN, vec![]),
             |(current_max, current_permutation), p| {
-                let channel_a = std::sync::mpsc::channel();
-                let channel_b = std::sync::mpsc::channel();
-                let channel_c = std::sync::mpsc::channel();
-                let channel_d = std::sync::mpsc::channel();
-                let channel_e = std::sync::mpsc::channel();
-                let channel_output = std::sync::mpsc::channel();
+                let (channel_input_tx, channel_input_rx) = mpsc::channel();
+                let (channel_output_tx, channel_output_rx) = mpsc::channel();
+                let (channel_result_tx, channel_result_rx) = mpsc::channel();
+
+                let (channel_a_tx, channel_a_rx) = mpsc::channel();
+                let channel_b = mpsc::channel();
+                let channel_c = mpsc::channel();
+                let channel_d = mpsc::channel();
+                let channel_e = mpsc::channel();
 
                 let cpu_a = cpus[&p[0]]
                     .copy_with_input(None)
-                    .spawn(channel_a.1, channel_b.0);
+                    .spawn(channel_a_rx, channel_b.0);
                 let cpu_b = cpus[&p[1]]
                     .copy_with_input(None)
                     .spawn(channel_b.1, channel_c.0);
@@ -139,15 +144,26 @@ pub fn solve_2(base_memory: &[Memory]) -> (Memory, Vec<usize>) {
                     .spawn(channel_d.1, channel_e.0);
                 let cpu_e = cpus[&p[4]]
                     .copy_with_input(None)
-                    .spawn(channel_e.1, channel_output.0);
+                    .spawn(channel_e.1, channel_output_tx);
 
-                channel_a.0.send(0).expect("send error");
+                let loop_controller = thread::spawn(move || {
+                    let input = channel_input_rx.recv().expect("recv error");
 
-                let candidate = channel_output.1.recv().expect("recv error");
+                    channel_a_tx.send(input).expect("send error");
 
-                if true {
-                    unimplemented!();
-                }
+                    let mut candidate = 0;
+                    for value in channel_output_rx {
+                        candidate = value;
+
+                        let _r = channel_a_tx.send(value);
+                    }
+
+                    channel_result_tx.send(candidate).expect("send error");
+                });
+
+                channel_input_tx.send(0).expect("send error");
+
+                let candidate = channel_result_rx.recv().expect("recv error");
 
                 cpu_a
                     .join()
@@ -169,6 +185,8 @@ pub fn solve_2(base_memory: &[Memory]) -> (Memory, Vec<usize>) {
                     .join()
                     .expect("cpu_e panic")
                     .expect("invalid cpu_e result");
+
+                loop_controller.join().expect("loop panic");
 
                 if false {
                     Err(()) // sluggish...
@@ -193,7 +211,7 @@ pub fn part_2() -> Memory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use test::Bencher;
 
     use crate::intcode::parse;

@@ -1,5 +1,5 @@
 #![feature(test)]
-extern crate test;    
+extern crate test;
 
 #[macro_use]
 extern crate lazy_static;
@@ -8,7 +8,7 @@ pub mod intcode;
 pub mod simple;
 pub mod spawn;
 
-use intcode::{Memory, parse};
+use intcode::{parse, Memory};
 
 lazy_static! {
     pub static ref DATA: Vec<Memory> = parse(include_str!("../data.txt"));
@@ -17,7 +17,7 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_part_1_impls() {
         assert_eq!(simple::part_1(), spawn::part_1());

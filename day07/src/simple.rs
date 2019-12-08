@@ -2,7 +2,7 @@ use itertools::Itertools;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::intcode::{CPU, Step, Memory};
+use crate::intcode::{Memory, Step, CPU};
 use crate::DATA;
 
 pub fn solve_1(base_memory: &[Memory]) -> (Memory, Vec<usize>) {
