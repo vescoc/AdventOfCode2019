@@ -299,22 +299,11 @@ impl CPU {
     }
 }
 
-const SEPARATOR: char = ',';
-
-pub fn parse(data: &str) -> Vec<Memory> {
-    data.trim()
-        .split(SEPARATOR)
-        .map(|s| {
-            s.parse()
-                .unwrap_or_else(|e| panic!("cannot parse: {}, {}", s, e))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::mpsc;
+    use crate::parse;
 
     #[test]
     fn test_step() {

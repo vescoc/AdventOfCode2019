@@ -4,94 +4,38 @@ extern crate test;
 #[macro_use]
 extern crate lazy_static;
 
-pub mod intcode;
+use std::str::FromStr;
 
-use intcode::{parse, Memory, Step, CPU};
+pub mod simple;
+//pub mod generic;
 
 lazy_static! {
-    pub static ref DATA: Vec<Memory> = parse(include_str!("../data.txt"));
+    pub static ref DATA: Vec<i128> = parse(include_str!("../data.txt"));
 }
 
-pub fn part_1() -> Memory {
-    let mut cpu = CPU::new(DATA.to_owned(), 0, Some(1));
+const SEPARATOR: char = ',';
 
-    let mut output = vec![];
-    loop {
-        match cpu.step() {
-            Ok(Step::NeedInput) => panic!("invalid input request"),
-            Ok(Step::Continue) => {}
-            Ok(Step::Output(value)) => output.push(value),
-            Ok(Step::Halt) => break,
-            state => panic!("invalid state {:?}", state),
-        }
-    }
-
-    output.pop().unwrap().to_owned()
-}
-
-pub fn part_2() -> Memory {
-    let mut cpu = CPU::new(DATA.to_owned(), 0, Some(2));
-
-    let mut output = vec![];
-    loop {
-        match cpu.step() {
-            Ok(Step::NeedInput) => panic!("invalid input request"),
-            Ok(Step::Continue) => {}
-            Ok(Step::Output(value)) => output.push(value),
-            Ok(Step::Halt) => break,
-            state => panic!("invalid state {:?}", state),
-        }
-    }
-
-    output.pop().unwrap().to_owned()
+pub fn parse<T: FromStr>(data: &str) -> Vec<T> {
+    data.trim()
+        .split(SEPARATOR)
+        .map(|s| {
+            s.parse()
+                .unwrap_or_else(|_| panic!("cannot parse: {}", s))
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use test::Bencher;
+    // use super::*;
 
-    #[test]
-    fn test_part_1() {
-        let mut cpu = CPU::new(DATA.to_owned(), 0, Some(1));
+    // #[test]
+    // fn test_same_results_part_1() {
+    //     assert_eq!(simple::part_1(), generic::part_1());
+    // }
 
-        let mut output = vec![];
-        loop {
-            match cpu.run() {
-                Ok(Step::NeedInput) => panic!("invalid input request"),
-                Ok(Step::Output(value)) => output.push(value),
-                Ok(Step::Halt) => break,
-                state => panic!("invalid state {:?}", state),
-            }
-        }
-
-        assert_eq!(output.len(), 1);
-    }
-
-    #[test]
-    fn test_part_2() {
-        let mut cpu = CPU::new(DATA.to_owned(), 0, Some(2));
-
-        let mut output = vec![];
-        loop {
-            match cpu.run() {
-                Ok(Step::NeedInput) => panic!("invalid input request"),
-                Ok(Step::Output(value)) => output.push(value),
-                Ok(Step::Halt) => break,
-                state => panic!("invalid state {:?}", state),
-            }
-        }
-
-        assert_eq!(output.len(), 1);
-    }
-
-    #[bench]
-    fn bench_part_1(b: &mut Bencher) {
-        b.iter(part_1);
-    }
-
-    #[bench]
-    fn bench_part_2(b: &mut Bencher) {
-        b.iter(part_2);
-    }
+    // #[test]
+    // fn test_same_results_part_2() {
+    //     assert_eq!(simple::part_2(), generic::part_2());
+    // }
 }
