@@ -20,7 +20,6 @@ pub enum Error {
     InvalidOpcodeModeIndex(Opcode, u8),
     InvalidOpcodeModeValue(Opcode, u8),
     EOF,
-    NoInput(usize),
 }
 
 #[derive(Debug)]
