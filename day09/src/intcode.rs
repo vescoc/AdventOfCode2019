@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, Deref};
 use std::sync::mpsc::{Receiver, RecvError, SendError, Sender};
 use std::thread;
 
@@ -52,9 +52,13 @@ impl MemoryData {
     fn new(data: Vec<Memory>) -> Self {
         Self(data.into_iter().enumerate().collect())
     }
+}
 
-    fn get(&self, idx: usize) -> Option<&Memory> {
-        self.0.get(&idx)
+impl Deref for MemoryData {
+    type Target = HashMap<usize, Memory>;
+
+    fn deref(&self) -> &HashMap<usize, Memory> {
+        &self.0
     }
 }
 
@@ -149,7 +153,7 @@ impl CPU {
     pub fn step(&mut self) -> Result<Step, Error> {
         let opcode = self
             .memory
-            .get(self.ip)
+            .get(&self.ip)
             .ok_or_else(|| Error::EOF)?
             .to_owned() as Opcode;
 
