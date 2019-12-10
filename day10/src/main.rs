@@ -1,12 +1,12 @@
 use std::time::Instant;
 
-use day10::simple;
+use day10::generic;
 
 fn main() {
     let now = Instant::now();
 
-    println!("part 1: {}", simple::part_1());
-    println!("part 2: {}", simple::part_2());
+    println!("part 1: {}", generic::part_1());
+    println!("part 2: {}", generic::part_2());
 
     let elapsed = now.elapsed();
 
