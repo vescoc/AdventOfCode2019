@@ -203,6 +203,7 @@ pub fn part_2() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test::Bencher;
 
     lazy_static! {
         static ref EXAMPLE: &'static str = r#".#..##.###...#######
@@ -336,5 +337,15 @@ mod tests {
     #[test]
     fn test_distance() {
         assert_eq!(distance(&Point(0, 0), &Point(10, 10)), 20);
+    }
+
+    #[bench]
+    fn bench_part_1(b: &mut Bencher) {
+        b.iter(part_1);
+    }
+
+    #[bench]
+    fn bench_part_2(b: &mut Bencher) {
+        b.iter(part_2);
     }
 }
