@@ -3,22 +3,95 @@ use std::ops::{Deref, Index, IndexMut};
 use std::sync::mpsc::{Receiver, RecvError, SendError, Sender};
 use std::thread;
 
-#[derive(Debug)]
-pub enum OpcodeMode {
-    Positional,
+pub type Memory = i128;
+
+#[derive(Debug, Copy, Clone)]
+pub enum Mode {
+    Position,
     Immediate,
     Relative,
 }
 
-pub type Opcode = u128;
-pub type Memory = i128;
+enum ModeIndex {
+    One,
+    Two,
+    Three,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Opcode {
+    Add(Mode, Mode, Mode),
+    Mul(Mode, Mode, Mode),
+    Input(Mode),
+    Output(Mode),
+    IfNEq(Mode, Mode),
+    IfEq(Mode, Mode),
+    IfLess(Mode, Mode, Mode),
+    IfEqTo(Mode, Mode, Mode),
+    Base(Mode),
+    Halt,
+}
+
+#[derive(Debug)]
+pub enum DecodeOpcodeError {
+    InvalidOpcode(Memory, usize),
+    InvalidOpcodeModeValue(Memory, usize),
+}
+
+impl Opcode {
+    fn from(memory: &Memory, ip: usize) -> Result<Opcode, DecodeOpcodeError> {
+        let mode = |index| {
+            let value = match index {
+                ModeIndex::One => memory / 100 % 10,
+                ModeIndex::Two => memory / 1000 % 10,
+                ModeIndex::Three => memory / 10000 % 10,
+            };
+
+            match value {
+                0 => Ok(Mode::Position),
+                1 => Ok(Mode::Immediate),
+                2 => Ok(Mode::Relative),
+                _ => Err(DecodeOpcodeError::InvalidOpcodeModeValue(*memory, ip)),
+            }
+        };
+
+        match memory % 100 {
+            1 => Ok(Opcode::Add(
+                mode(ModeIndex::One)?,
+                mode(ModeIndex::Two)?,
+                mode(ModeIndex::Three)?,
+            )),
+            2 => Ok(Opcode::Mul(
+                mode(ModeIndex::One)?,
+                mode(ModeIndex::Two)?,
+                mode(ModeIndex::Three)?,
+            )),
+            3 => Ok(Opcode::Input(mode(ModeIndex::One)?)),
+            4 => Ok(Opcode::Output(mode(ModeIndex::One)?)),
+            5 => Ok(Opcode::IfNEq(mode(ModeIndex::One)?, mode(ModeIndex::Two)?)),
+            6 => Ok(Opcode::IfEq(mode(ModeIndex::One)?, mode(ModeIndex::Two)?)),
+            7 => Ok(Opcode::IfLess(
+                mode(ModeIndex::One)?,
+                mode(ModeIndex::Two)?,
+                mode(ModeIndex::Three)?,
+            )),
+            8 => Ok(Opcode::IfEqTo(
+                mode(ModeIndex::One)?,
+                mode(ModeIndex::Two)?,
+                mode(ModeIndex::Three)?,
+            )),
+            9 => Ok(Opcode::Base(mode(ModeIndex::One)?)),
+            99 => Ok(Opcode::Halt),
+            _ => Err(DecodeOpcodeError::InvalidOpcode(*memory, ip)),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum Error {
-    InvalidOpcode(Opcode, usize),
-    InvalidOpcodeMode(Opcode, OpcodeMode),
-    InvalidOpcodeModeIndex(Opcode, u8),
-    InvalidOpcodeModeValue(Opcode, u8),
+    InvalidOpcode(DecodeOpcodeError),
+    InvalidOpcodeMode(Opcode, Mode, usize),
+    InvalidOpcodeModeValue(Memory, usize),
     EOF,
 }
 
@@ -37,10 +110,17 @@ pub enum Step {
     Halt,
 }
 
+#[derive(Debug)]
+pub enum Run {
+    NeedInput,
+    Output(Memory),
+    Halt,
+}
+
 pub struct CPU {
     memory: MemoryData,
     ip: usize,
-    base: i128,
+    base: Memory,
     input: Option<Memory>,
 }
 
@@ -97,93 +177,73 @@ impl CPU {
     }
 
     #[inline(always)]
-    fn mode(&self, opcode: Opcode, i: u8) -> Result<OpcodeMode, Error> {
-        match i {
-            1 => self.opcode_mode(opcode, (opcode / 100 % 10) as u8),
-            2 => self.opcode_mode(opcode, (opcode / 1000 % 10) as u8),
-            3 => self.opcode_mode(opcode, (opcode / 10000 % 10) as u8),
-            _ => Err(Error::InvalidOpcodeModeIndex(opcode, i)),
-        }
-    }
-
-    #[inline(always)]
-    fn opcode_mode(&self, opcode: Opcode, i: u8) -> Result<OpcodeMode, Error> {
-        match i {
-            0 => Ok(OpcodeMode::Positional),
-            1 => Ok(OpcodeMode::Immediate),
-            2 => Ok(OpcodeMode::Relative),
-            _ => Err(Error::InvalidOpcodeModeValue(opcode, i)),
-        }
-    }
-
-    #[inline(always)]
     fn write(
         &mut self,
-        opcode: Opcode,
+        opcode: &Opcode,
         index: usize,
-        mode: OpcodeMode,
+        mode: Mode,
         value: Memory,
     ) -> Result<(), Error> {
         match mode {
-            OpcodeMode::Positional => {
+            Mode::Position => {
                 let idx = self.memory[index] as usize;
                 self.memory[idx] = value;
+
                 Ok(())
             }
-            OpcodeMode::Immediate => Err(Error::InvalidOpcodeMode(opcode, mode)),
-            OpcodeMode::Relative => {
+            Mode::Immediate => Err(Error::InvalidOpcodeMode(*opcode, mode, self.ip)),
+            Mode::Relative => {
                 let idx = (self.base + self.memory[index]) as usize;
                 self.memory[idx] = value;
+
                 Ok(())
             }
         }
     }
 
     #[inline(always)]
-    fn read(&self, _opcode: Opcode, index: usize, mode: OpcodeMode) -> Result<Memory, Error> {
+    fn read(&self, index: usize, mode: Mode) -> Result<Memory, Error> {
         let memory = &self.memory;
         match mode {
-            OpcodeMode::Positional => Ok(memory[memory[index] as usize]),
-            OpcodeMode::Immediate => Ok(memory[index]),
-            OpcodeMode::Relative => Ok(memory[(memory[index] + self.base) as usize]),
+            Mode::Position => Ok(memory[memory[index] as usize]),
+            Mode::Immediate => Ok(memory[index]),
+            Mode::Relative => Ok(memory[(memory[index] + self.base) as usize]),
         }
     }
 
     pub fn step(&mut self) -> Result<Step, Error> {
-        let opcode = self
-            .memory
-            .get(&self.ip)
-            .ok_or_else(|| Error::EOF)?
-            .to_owned() as Opcode;
+        let opcode = Opcode::from(
+            self.memory.get(&self.ip).ok_or_else(|| Error::EOF)?,
+            self.ip,
+        )
+        .map_err(Error::InvalidOpcode)?;
 
-        match opcode % 100 {
-            1 => {
+        match opcode {
+            Opcode::Add(mode1, mode2, mode3) => {
                 self.write(
-                    opcode,
+                    &opcode,
                     self.ip + 3,
-                    self.mode(opcode, 3)?,
-                    self.read(opcode, self.ip + 1, self.mode(opcode, 1)?)?
-                        + self.read(opcode, self.ip + 2, self.mode(opcode, 2)?)?,
+                    mode3,
+                    self.read(self.ip + 1, mode1)? + self.read(self.ip + 2, mode2)?,
                 )?;
                 self.ip += 4;
 
                 Ok(Step::Continue)
             }
-            2 => {
+            Opcode::Mul(mode1, mode2, mode3) => {
                 self.write(
-                    opcode,
+                    &opcode,
                     self.ip + 3,
-                    self.mode(opcode, 3)?,
-                    self.read(opcode, self.ip + 1, self.mode(opcode, 1)?)?
-                        * self.read(opcode, self.ip + 2, self.mode(opcode, 2)?)?,
+                    mode3,
+                    self.read(self.ip + 1, mode1)? * self.read(self.ip + 2, mode2)?,
                 )?;
                 self.ip += 4;
 
                 Ok(Step::Continue)
             }
-            3 => {
+            Opcode::Input(mode1) => {
                 if let Some(input) = self.input {
-                    self.write(opcode, self.ip + 1, self.mode(opcode, 1)?, input)?;
+                    self.write(&opcode, self.ip + 1, mode1, input)?;
                     self.input = None;
                     self.ip += 2;
 
@@ -192,67 +252,61 @@ impl CPU {
                     Ok(Step::NeedInput)
                 }
             }
-            4 => {
-                let output = self.read(opcode, self.ip + 1, self.mode(opcode, 1)?)?;
+            Opcode::Output(mode1) => {
+                let output = self.read(self.ip + 1, mode1)?;
                 self.ip += 2;
 
                 Ok(Step::Output(output))
             }
-            5 => {
-                self.ip = if self.read(opcode, self.ip + 1, self.mode(opcode, 1)?)? != 0 {
-                    self.read(opcode, self.ip + 2, self.mode(opcode, 2)?)? as usize
+            Opcode::IfNEq(mode1, mode2) => {
+                self.ip = if self.read(self.ip + 1, mode1)? != 0 {
+                    self.read(self.ip + 2, mode2)? as usize
                 } else {
                     self.ip + 3
                 };
 
                 Ok(Step::Continue)
             }
-            6 => {
-                self.ip = if self.read(opcode, self.ip + 1, self.mode(opcode, 1)?)? == 0 {
-                    self.read(opcode, self.ip + 2, self.mode(opcode, 2)?)? as usize
+            Opcode::IfEq(mode1, mode2) => {
+                self.ip = if self.read(self.ip + 1, mode1)? == 0 {
+                    self.read(self.ip + 2, mode2)? as usize
                 } else {
                     self.ip + 3
                 };
 
                 Ok(Step::Continue)
             }
-            7 => {
-                let value = if self.read(opcode, self.ip + 1, self.mode(opcode, 1)?)?
-                    < self.read(opcode, self.ip + 2, self.mode(opcode, 2)?)?
-                {
+            Opcode::IfLess(mode1, mode2, mode3) => {
+                let value = if self.read(self.ip + 1, mode1)? < self.read(self.ip + 2, mode2)? {
                     1
                 } else {
                     0
                 };
 
-                self.write(opcode, self.ip + 3, self.mode(opcode, 3)?, value)?;
+                self.write(&opcode, self.ip + 3, mode3, value)?;
                 self.ip += 4;
 
                 Ok(Step::Continue)
             }
-            8 => {
-                let value = if self.read(opcode, self.ip + 1, self.mode(opcode, 1)?)?
-                    == self.read(opcode, self.ip + 2, self.mode(opcode, 2)?)?
-                {
+            Opcode::IfEqTo(mode1, mode2, mode3) => {
+                let value = if self.read(self.ip + 1, mode1)? == self.read(self.ip + 2, mode2)? {
                     1
                 } else {
                     0
                 };
 
-                self.write(opcode, self.ip + 3, self.mode(opcode, 3)?, value)?;
+                self.write(&opcode, self.ip + 3, mode3, value)?;
                 self.ip += 4;
 
                 Ok(Step::Continue)
             }
-            9 => {
-                self.base += self.read(opcode, self.ip + 1, self.mode(opcode, 1)?)?;
+            Opcode::Base(mode1) => {
+                self.base += self.read(self.ip + 1, mode1)?;
                 self.ip += 2;
 
                 Ok(Step::Continue)
             }
-            99 => Ok(Step::Halt),
-
-            _ => Err(Error::InvalidOpcode(opcode, self.ip)),
+            Opcode::Halt => Ok(Step::Halt),
         }
     }
 
@@ -264,11 +318,13 @@ impl CPU {
         }
     }
 
-    pub fn run(&mut self) -> Result<Step, Error> {
+    pub fn run(&mut self) -> Result<Run, Error> {
         loop {
-            match self.step() {
-                Ok(Step::Continue) => {}
-                r => break r,
+            match self.step()? {
+                Step::Continue => {}
+                Step::NeedInput => break Ok(Run::NeedInput),
+                Step::Output(value) => break Ok(Run::Output(value)),
+                Step::Halt => break Ok(Run::Halt),
             }
         }
     }
@@ -280,18 +336,14 @@ impl CPU {
     ) -> thread::JoinHandle<Result<(), ErrorSpawn>> {
         thread::spawn(move || -> Result<(), ErrorSpawn> {
             loop {
-                match self.run() {
-                    Ok(Step::Halt) => return Ok(()),
-                    Ok(Step::NeedInput) => {
+                match self.run().map_err(ErrorSpawn::CPU)? {
+                    Run::Halt => return Ok(()),
+                    Run::NeedInput => {
                         self.input = Some(input_rx.recv().map_err(ErrorSpawn::Recv)?);
                     }
-                    Ok(Step::Output(value)) => {
+                    Run::Output(value) => {
                         output_tx.send(value).map_err(ErrorSpawn::Send)?;
                     }
-                    Err(e) => {
-                        return Err(ErrorSpawn::CPU(e));
-                    }
-                    _ => unreachable!(),
                 }
             }
         })
@@ -330,9 +382,9 @@ mod tests {
         let mut cpu = CPU::new(memory, 0, Some(0));
 
         loop {
-            match cpu.run() {
-                Ok(Step::NeedInput) => break,
-                Ok(Step::Output(value)) => {
+            match cpu.run().unwrap_or_else(|_| panic!("error")) {
+                Run::NeedInput => break,
+                Run::Output(value) => {
                     println!("test_test_with_input output: {}", value);
                 }
                 state => panic!("invalid state {:?}", state),
@@ -370,11 +422,10 @@ mod tests {
 
         let mut output = vec![];
         loop {
-            match cpu.run() {
-                Ok(Step::NeedInput) => panic!("invalid input request"),
-                Ok(Step::Output(value)) => output.push(value),
-                Ok(Step::Halt) => break,
-                state => panic!("invalid state {:?}", state),
+            match cpu.run().unwrap_or_else(|_| panic!("error")) {
+                Run::NeedInput => panic!("invalid input request"),
+                Run::Output(value) => output.push(value),
+                Run::Halt => break,
             }
         }
 
@@ -390,11 +441,10 @@ mod tests {
 
         let mut output = vec![];
         loop {
-            match cpu.run() {
-                Ok(Step::NeedInput) => panic!("invalid input request"),
-                Ok(Step::Output(value)) => output.push(value),
-                Ok(Step::Halt) => break,
-                state => panic!("invalid state {:?}", state),
+            match cpu.run().unwrap_or_else(|_| panic!("error")) {
+                Run::NeedInput => panic!("invalid input request"),
+                Run::Output(value) => output.push(value),
+                Run::Halt => break,
             }
         }
 
@@ -410,11 +460,10 @@ mod tests {
 
         let mut output = vec![];
         loop {
-            match cpu.run() {
-                Ok(Step::NeedInput) => panic!("invalid input request"),
-                Ok(Step::Output(value)) => output.push(value),
-                Ok(Step::Halt) => break,
-                state => panic!("invalid state {:?}", state),
+            match cpu.run().unwrap_or_else(|_| panic!("error")) {
+                Run::NeedInput => panic!("invalid input request"),
+                Run::Output(value) => output.push(value),
+                Run::Halt => break,
             }
         }
 

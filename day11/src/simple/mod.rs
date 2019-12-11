@@ -3,7 +3,7 @@ pub mod intcode;
 use std::collections::HashMap;
 
 use crate::DATA;
-use intcode::{Memory, Step, CPU};
+use intcode::{Memory, Run, CPU};
 
 type Point = (i32, i32);
 
@@ -26,20 +26,19 @@ impl Paint for HashMap<Point, Memory> {
                 .run()
                 .unwrap_or_else(|e| panic!("unexpected error {:?}", e))
             {
-                Step::NeedInput => panic!("invalid input request"),
-                Step::Output(value) => {
+                Run::NeedInput => panic!("invalid input request"),
+                Run::Output(value) => {
                     self.insert(position.to_owned(), value);
                 }
-                Step::Halt => break,
-                state => panic!("invalid state {:?}", state),
+                Run::Halt => break,
             }
 
             match cpu
                 .run()
                 .unwrap_or_else(|e| panic!("unexpected error {:?}", e))
             {
-                Step::NeedInput => panic!("invalid input request"),
-                Step::Output(value) => {
+                Run::NeedInput => panic!("invalid input request"),
+                Run::Output(value) => {
                     direction_index = match value {
                         0 => (direction_index + directions.len() - 1) % directions.len(),
                         1 => (direction_index + 1) % directions.len(),
@@ -50,8 +49,7 @@ impl Paint for HashMap<Point, Memory> {
                         position.1 + directions[direction_index].1,
                     );
                 }
-                Step::Halt => break,
-                state => panic!("invalid state {:?}", state),
+                Run::Halt => break,
             }
         }
 
