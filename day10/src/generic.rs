@@ -1,24 +1,13 @@
-use std::cmp;
-use std::collections::{HashMap, HashSet};
+use std::cmp::{self, Ordering};
+use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::{Mul, Sub, Add};
-use std::convert::TryFrom;
+use std::ops::{Add, Mul, Sub};
 
-use crate::{INPUT, ASTEROID, EMPTY_SPACE};
+use crate::{ASTEROID, EMPTY_SPACE, INPUT};
 
 lazy_static! {
-    static ref WIDTH: i32 = INPUT
-        .lines()
-        .count() as i32;
-
-    static ref HEIGHT: i32 = INPUT
-        .trim()
-        .lines()
-        .last()
-        .unwrap()
-        .len() as i32;
-
     static ref DATA: Vec<Point<i32>> = parse(&INPUT);
 }
 
@@ -44,7 +33,13 @@ pub fn distance<T>(p1: &Point<T>, p2: &Point<T>) -> T
 where
     T: Copy + Hash + Eq + Debug + Default + Sub<T, Output = T> + Add<T, Output = T> + cmp::Ord,
 {
-    let abs = |v| if v < T::default() { T::default() - v } else { v };
+    let abs = |v| {
+        if v < T::default() {
+            T::default() - v
+        } else {
+            v
+        }
+    };
 
     abs(p1.x() - p2.x()) + abs(p1.y() + p2.y())
 }
@@ -136,86 +131,61 @@ where
     }
 
     los.iter()
-        .fold(
-            HashMap::<&Point<T>, usize>::new(),
-            |mut acc, (p1, p2)| {
-                acc.entry(p1).and_modify(|v| *v += 1).or_insert(1);
-                acc.entry(p2).and_modify(|v| *v += 1).or_insert(1);
-                acc
-            },
-        )
+        .fold(HashMap::<&Point<T>, usize>::new(), |mut acc, (p1, p2)| {
+            acc.entry(p1).and_modify(|v| *v += 1).or_insert(1);
+            acc.entry(p2).and_modify(|v| *v += 1).or_insert(1);
+            acc
+        })
         .into_iter()
         .max_by(|(_, va), (_, vb)| va.cmp(&vb))
         .unwrap()
 }
 
-pub fn solve_2<'a, T>(points: &'a [Point<T>], center: &Point<T>, width: T, height: T) -> &'a Point<T>
+pub fn solve_2<'a, T>(points: &'a [Point<T>], center: &Point<T>) -> &'a Point<T>
 where
     T: Eq
         + Hash
         + Copy
         + Sub<T, Output = T>
-    + Mul<T, Output = T>
-    + Add<T, Output = T>
+        + Add<T, Output = T>
+        + Mul<T, Output = T>
         + Default
         + PartialEq
         + PartialOrd
-    + Debug
-    + From<i32>
-    + cmp::Ord
+        + Debug
+        + From<i32>
+        + cmp::Ord
+        + Into<f64>,
 {
-    println!("center: {:?} width: {:?} height: {:?}", center, width, height);
-    
-    (0..)
-        .scan(
-            (
-                vec![center].into_iter().collect::<HashSet<_>>(),
-                Point(center.x(), T::from(-110)),
-                vec![
-                    (T::from(230), (T::from(0), T::from(1))),
-                    (T::from(230), (T::from(-1), T::from(0))),
-                    (T::from(230), (T::from(0), T::from(-1))),
-                    (T::from(230), (T::from(1), T::from(0))),
-                ]
-                    .into_iter()
-                    .cycle(),
-                center.x(),
-                (width - T::from(1), (T::from(1), T::from(0))),
-            ),
-            |state, _| {
-                let r = if let Some(p) = points
+    let mut v = points
+        .iter()
+        .filter_map(|p| {
+            if p != center
+                && !points
                     .iter()
-                    .filter(|p| !state.0.contains(p))
-                    .filter_map(|p| if contains(center, &state.1, p) { Some((p, distance(center, p))) } else { None })
-                    .min_by(|(_, d1), (_, d2)| d1.cmp(&d2))
-                {
-                    state.0.insert(p.0);
-                    Some(Some(p.0))
-                } else {
-                    Some(None)
-                };
-
-                println!("i: {:?} r: {:?} border: {:?} limits: {:?} len: {}", state.3, r, state.1, state.4, state.0.len());
-
-                let (limit, (dx, dy)) = state.4;
-                if limit == state.3 {
-                    state.4 = state.2.next().unwrap();
-                    let (_, (dx, dy)) = state.4;
-
-                    state.1 = Point(state.1.x() + dx.to_owned(), state.1.y() + dy.to_owned());
-                    state.3 = T::default();
-                } else {
-                    state.1 = Point(state.1.x() + dx.to_owned(), state.1.y() + dy.to_owned());
-                    state.3 = state.3 + T::from(1);
-                }
-                                
-                r
+                    .any(|c| c != p && c != center && contains(center, p, c))
+            {
+                Some((
+                    p,
+                    ((p.x() - center.x()).into()).atan2((p.y() - center.y()).into()),
+                ))
+            } else {
+                None
             }
-        )
-        .flatten()
-        .skip(199)
-        .next()
-        .unwrap()
+        })
+        .collect::<Vec<(&'a Point<T>, f64)>>();
+
+    v.sort_by(|(_, b), (_, a)| {
+        if a > b {
+            Ordering::Greater
+        } else if (a - b).abs() < std::f64::EPSILON {
+            Ordering::Equal
+        } else {
+            Ordering::Less
+        }
+    });
+
+    v[199].0
 }
 
 pub fn part_1() -> usize {
@@ -224,8 +194,8 @@ pub fn part_1() -> usize {
 
 pub fn part_2() -> i32 {
     let p = solve_1(&DATA).0;
-    
-    let p = solve_2(&DATA, p, *WIDTH, *HEIGHT);
+
+    let p = solve_2(&DATA, p);
 
     p.0 * 100 + p.1
 }
@@ -298,7 +268,9 @@ mod tests {
 
     #[test]
     fn test_example_1_1() {
-        assert_eq!(solve_1(&parse::<i32>(r#"......#.#.
+        assert_eq!(
+            solve_1(&parse::<i32>(
+                r#"......#.#.
 #..#.#....
 ..#######.
 .#.#.###..
@@ -307,12 +279,17 @@ mod tests {
 #..#....#.
 .##.#..###
 ##...#..#.
-.#....####"#)), (&Point(5, 8), 33));
+.#....####"#
+            )),
+            (&Point(5, 8), 33)
+        );
     }
-    
+
     #[test]
     fn test_example_1_2() {
-        assert_eq!(solve_1(&parse::<i32>(r#"#.#...#.#.
+        assert_eq!(
+            solve_1(&parse::<i32>(
+                r#"#.#...#.#.
 .###....#.
 .#....#...
 ##.#.#.#.#
@@ -321,12 +298,17 @@ mod tests {
 ..#...##..
 ..##....##
 ......#...
-.####.###."#)), (&Point(1, 2), 35));
+.####.###."#
+            )),
+            (&Point(1, 2), 35)
+        );
     }
-    
+
     #[test]
     fn test_example_1_3() {
-        assert_eq!(solve_1(&parse::<i32>(r#".#..#..###
+        assert_eq!(
+            solve_1(&parse::<i32>(
+                r#".#..#..###
 ####.###.#
 ....###.#.
 ..###.##.#
@@ -335,12 +317,20 @@ mod tests {
 ..#.#..#.#
 #..#.#.###
 .##...##.#
-.....#.#.."#)), (&Point(6, 3), 41));
+.....#.#.."#
+            )),
+            (&Point(6, 3), 41)
+        );
     }
 
     #[test]
     fn test_example_1_large() {
         assert_eq!(solve_1(&parse(&EXAMPLE)), (&Point(11, 13), 210));
+    }
+
+    #[test]
+    fn test_example_2_large() {
+        assert_eq!(solve_2(&parse(&EXAMPLE), &Point(11, 13)), &Point(8, 2));
     }
 
     #[test]
