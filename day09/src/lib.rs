@@ -24,18 +24,3 @@ pub fn parse<T: FromStr>(data: &str) -> Vec<T> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    // use super::*;
-
-    // #[test]
-    // fn test_same_results_part_1() {
-    //     assert_eq!(simple::part_1(), generic::part_1());
-    // }
-
-    // #[test]
-    // fn test_same_results_part_2() {
-    //     assert_eq!(simple::part_2(), generic::part_2());
-    // }
-}
