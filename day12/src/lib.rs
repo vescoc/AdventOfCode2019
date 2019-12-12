@@ -189,7 +189,7 @@ pub fn step(moons: &mut [Moon<i64>]) -> &[Moon<i64>] {
             a[i].gravity_interaction(m);
         }
     }
-
+    
     moons.iter_mut().for_each(|m| { m.step(); });
 
     moons
@@ -210,24 +210,22 @@ pub fn cycle(p: &mut [i64], v: &mut [i64]) -> (usize, usize) {
             map.insert(snapshot, i);
         }
 
-        for i in 0..p.len() - 1 {
-            let (pa, pb) = p.split_at_mut(i + 1);
-            let (va, vb) = v.split_at_mut(i + 1);
-            for j in 0..pb.len() {
-                match pa[i].cmp(&pb[j]) {
+        for i in 0..p.len() {
+            for j in i..p.len() {
+                match p[i].cmp(&p[j]) {
                     Ordering::Less => {
-                        va[i] += 1;
-                        vb[j] -= 1;
+                        v[i] += 1;
+                        v[j] -= 1;
                     }
                     Ordering::Greater => {
-                        va[i] += -1;
-                        vb[j] -= -1;
+                        v[i] += -1;
+                        v[j] -= -1;
                     }
                     Ordering::Equal => {}
                 }
             }
         }
-
+        
         for i in 0..p.len() {
             p[i] += v[i];
         }
