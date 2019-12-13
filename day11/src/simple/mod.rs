@@ -1,73 +1,119 @@
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 
 use crate::DATA;
 use intcode::{Memory, Run, CPU};
 
 type Point = (i32, i32);
 
-trait Paint {
-    fn paint(self, istructions: &[Memory]) -> Self;
+static DIRECTIONS: [Point; 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
+
+struct Painter {
+    cpu: CPU,
+    panel: HashMap<Point, Memory>,
+    position: Point,
+    direction_index: usize,
 }
 
-impl Paint for HashMap<Point, Memory> {
-    fn paint(mut self, istructions: &[Memory]) -> Self {
-        let mut cpu = CPU::new(istructions.to_owned(), 0, None);
+impl Painter {
+    pub fn new(istructions: &[Memory]) -> Self {
+        Self {
+            cpu: CPU::new(istructions.to_vec(), 0, None),
+            panel: HashMap::new(),
+            position: (0, 0),
+            direction_index: 0,
+        }
+    }
 
-        let directions = [(0, -1), (1, 0), (0, 1), (-1, 0)];
-        let mut direction_index = 0;
-        let mut position = (0, 0);
-        loop {
-            cpu.set_input(Some(
-                self.get(&position).copied().unwrap_or_default().to_owned(),
-            ));
-            match cpu
-                .run()
-                .unwrap_or_else(|e| panic!("unexpected error {:?}", e))
-            {
-                Run::NeedInput => panic!("invalid input request"),
-                Run::Output(value) => {
-                    self.insert(position.to_owned(), value);
-                }
-                Run::Halt => break,
-            }
+    pub fn paint(&mut self) -> Option<(Point, Memory)> {
+        let mut result = None;
 
-            match cpu
-                .run()
-                .unwrap_or_else(|e| panic!("unexpected error {:?}", e))
-            {
-                Run::NeedInput => panic!("invalid input request"),
-                Run::Output(value) => {
-                    direction_index = match value {
-                        0 => (direction_index + directions.len() - 1) % directions.len(),
-                        1 => (direction_index + 1) % directions.len(),
-                        _ => unreachable!(),
-                    };
-                    position = (
-                        position.0 + directions[direction_index].0,
-                        position.1 + directions[direction_index].1,
-                    );
-                }
-                Run::Halt => break,
+        self.cpu.set_input(Some(
+            self.panel
+                .get(&self.position)
+                .copied()
+                .unwrap_or_default()
+                .to_owned(),
+        ));
+        match self
+            .cpu
+            .run()
+            .unwrap_or_else(|e| panic!("unexpected error {:?}", e))
+        {
+            Run::NeedInput => panic!("invalid input request"),
+            Run::Output(value) => {
+                self.panel.insert(self.position.to_owned(), value);
+                result = Some((self.position.to_owned(), value));
             }
+            Run::Halt => return result,
         }
 
-        self
+        match self
+            .cpu
+            .run()
+            .unwrap_or_else(|e| panic!("unexpected error {:?}", e))
+        {
+            Run::NeedInput => panic!("invalid input request"),
+            Run::Output(value) => {
+                self.direction_index = match value {
+                    0 => (self.direction_index + DIRECTIONS.len() - 1) % DIRECTIONS.len(),
+                    1 => (self.direction_index + 1) % DIRECTIONS.len(),
+                    _ => unreachable!(),
+                };
+                self.position = (
+                    self.position.0 + DIRECTIONS[self.direction_index].0,
+                    self.position.1 + DIRECTIONS[self.direction_index].1,
+                );
+            }
+            Run::Halt => {}
+        }
+
+        result
+    }
+
+    pub fn paint_panel(&mut self) {
+        while let Some(_) = self.paint() {}
+    }
+}
+
+impl Iterator for Painter {
+    type Item = (Point, Memory);
+
+    fn next(&mut self) -> Option<(Point, Memory)> {
+        self.paint()
+    }
+}
+
+impl Deref for Painter {
+    type Target = HashMap<Point, Memory>;
+
+    fn deref(&self) -> &HashMap<Point, Memory> {
+        &self.panel
+    }
+}
+
+impl DerefMut for Painter {
+    fn deref_mut(&mut self) -> &mut HashMap<Point, Memory> {
+        &mut self.panel
     }
 }
 
 pub fn part_1() -> usize {
-    let panel = HashMap::new().paint(&DATA);
+    let mut painter = Painter::new(&DATA);
 
-    panel.len()
+    painter.paint_panel();
+
+    painter.len()
 }
 
 pub fn part_2() -> String {
-    let panel = vec![((0, 0), 1)]
-        .into_iter()
-        .collect::<HashMap<Point, Memory>>()
-        .paint(&DATA);
+    let mut painter = Painter::new(&DATA);
 
-    let ((min_x, min_y), (max_x, max_y)) = panel.iter().fold(
+    painter.insert((0, 0), 1);
+
+    painter.paint_panel();
+
+    let ((min_x, min_y), (max_x, max_y)) = painter.iter().fold(
         (
             (i32::max_value(), i32::max_value()),
             (i32::min_value(), i32::min_value()),
@@ -91,7 +137,7 @@ pub fn part_2() -> String {
             data.push(if x == max_x + 1 {
                 '\n'
             } else {
-                match panel.get(&(x, y)) {
+                match painter.get(&(x, y)) {
                     Some(&value) if value == 1 => '#',
                     _ => ' ',
                 }
