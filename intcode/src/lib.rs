@@ -2,8 +2,11 @@ use std::collections::HashMap;
 use std::ops::{Deref, Index, IndexMut};
 use std::sync::mpsc::{Receiver, RecvError, SendError, Sender};
 use std::thread;
+use std::str::FromStr;
 
 pub type Memory = i128;
+
+const SEPARATOR: char = ',';
 
 #[derive(Debug, Copy, Clone)]
 pub enum Mode {
@@ -179,7 +182,7 @@ impl CPU {
     #[inline(always)]
     fn write(
         &mut self,
-        opcode: &Opcode,
+        opcode: Opcode,
         index: usize,
         mode: Mode,
         value: Memory,
@@ -191,7 +194,7 @@ impl CPU {
 
                 Ok(())
             }
-            Mode::Immediate => Err(Error::InvalidOpcodeMode(*opcode, mode, self.ip)),
+            Mode::Immediate => Err(Error::InvalidOpcodeMode(opcode, mode, self.ip)),
             Mode::Relative => {
                 let idx = (self.base + self.memory[index]) as usize;
                 self.memory[idx] = value;
@@ -221,7 +224,7 @@ impl CPU {
         match opcode {
             Opcode::Add(mode1, mode2, mode3) => {
                 self.write(
-                    &opcode,
+                    opcode,
                     self.ip + 3,
                     mode3,
                     self.read(self.ip + 1, mode1)? + self.read(self.ip + 2, mode2)?,
@@ -232,7 +235,7 @@ impl CPU {
             }
             Opcode::Mul(mode1, mode2, mode3) => {
                 self.write(
-                    &opcode,
+                    opcode,
                     self.ip + 3,
                     mode3,
                     self.read(self.ip + 1, mode1)? * self.read(self.ip + 2, mode2)?,
@@ -243,7 +246,7 @@ impl CPU {
             }
             Opcode::Input(mode1) => {
                 if let Some(input) = self.input {
-                    self.write(&opcode, self.ip + 1, mode1, input)?;
+                    self.write(opcode, self.ip + 1, mode1, input)?;
                     self.input = None;
                     self.ip += 2;
 
@@ -283,7 +286,7 @@ impl CPU {
                     0
                 };
 
-                self.write(&opcode, self.ip + 3, mode3, value)?;
+                self.write(opcode, self.ip + 3, mode3, value)?;
                 self.ip += 4;
 
                 Ok(Step::Continue)
@@ -295,7 +298,7 @@ impl CPU {
                     0
                 };
 
-                self.write(&opcode, self.ip + 3, mode3, value)?;
+                self.write(opcode, self.ip + 3, mode3, value)?;
                 self.ip += 4;
 
                 Ok(Step::Continue)
@@ -350,10 +353,16 @@ impl CPU {
     }
 }
 
+pub fn parse<T: FromStr>(data: &str) -> Vec<T> {
+    data.trim()
+        .split(SEPARATOR)
+        .map(|s| s.parse().unwrap_or_else(|_| panic!("cannot parse: {}", s)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parse;
     use std::sync::mpsc;
 
     #[test]

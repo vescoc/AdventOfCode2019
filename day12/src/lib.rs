@@ -390,9 +390,7 @@ mod tests {
 <x=3, y=5, z=-1>"#,
         );
 
-        solve_2(&moons);
-
-        panic!();
+        assert_eq!(solve_2(&moons), 2772);
     }
 
     #[bench]
