@@ -14,8 +14,8 @@ lazy_static! {
     pub static ref ISTRUCTIONS: Vec<intcode::Memory> = intcode::parse(include_str!("../data.txt"));
 }
 
-#[derive(Debug)]
-enum Tile {
+#[derive(Debug, PartialEq)]
+pub enum Tile {
     Empty,
     Wall,
     Block,
@@ -24,7 +24,7 @@ enum Tile {
 }
 
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     InvalidTileId(intcode::Memory),
 }
 
@@ -43,35 +43,42 @@ impl TryFrom<intcode::Memory> for Tile {
     }
 }
 
-pub fn part_1() -> usize {
-    let mut cpu = intcode::CPU::new(ISTRUCTIONS.to_vec(), 0, None);
-    let generator = || match cpu.run().expect("invalid state") {
-        intcode::Run::Halt => None,
-        intcode::Run::NeedInput => unreachable!(),
-        intcode::Run::Output(value) => Some(value),
-    };
+pub type Point = (intcode::Memory, intcode::Memory);
 
-    iter::from_fn(generator)
-        .enumerate()
-        .filter_map(|(index, value)| {
-            if index % 3 == 2 {
-                match Tile::try_from(value).expect("invalid tile id") {
-                    Tile::Block => Some(1),
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        })
-        .count()
+#[derive(PartialEq)]
+pub enum Event {
+    Draw(Tile, Point),
+    Score(intcode::Memory),
+    NeedInput,
+    Halt,
 }
 
-type Point = (intcode::Memory, intcode::Memory);
+pub enum Joystick {
+    Left,
+    Neutral,
+    Right,
+}
 
-struct Game {
+const PADDLE_RIGHT: intcode::Memory = 1;
+const PADDLE_NEUTRAL: intcode::Memory = 0;
+const PADDLE_LEFT: intcode::Memory = -1;
+
+impl From<&Joystick> for i128 {
+    fn from(joystick: &Joystick) -> i128 {
+        match joystick {
+            Joystick::Left => PADDLE_LEFT,
+            Joystick::Neutral => PADDLE_NEUTRAL,
+            Joystick::Right => PADDLE_RIGHT,
+        }
+    }
+}
+
+pub struct Game {
     ball_position: Option<Point>,
     horizontal_paddle_position: Option<Point>,
     score: Option<intcode::Memory>,
+    output: [intcode::Memory; 3],
+    output_index: usize,
     cpu: intcode::CPU,
 }
 
@@ -85,73 +92,117 @@ impl fmt::Debug for Game {
 }
 
 impl Game {
-    pub fn new(istructions: &[intcode::Memory]) -> Self {
+    pub fn score(&self) -> Option<intcode::Memory> {
+        self.score
+    }
+
+    pub fn new(istructions: &[intcode::Memory], coins: Option<intcode::Memory>) -> Self {
+        let istructions = if let Some(coins) = coins {
+            istructions
+                .iter()
+                .enumerate()
+                .map(|(index, &value)| if index == 0 { coins } else { value })
+                .collect()
+        } else {
+            istructions.to_vec()
+        };
+
         Self {
             ball_position: None,
             horizontal_paddle_position: None,
             score: None,
-            cpu: intcode::CPU::new(
-                istructions
-                    .iter()
-                    .enumerate()
-                    .map(|(index, &value)| if index == 0 { 2 } else { value })
-                    .collect(),
-                0,
-                None,
-            ),
+            output: [0, 0, 0],
+            output_index: 0,
+            cpu: intcode::CPU::new(istructions, 0, None),
         }
     }
 
-    pub fn play(&mut self) -> intcode::Memory {
-        const PADDLE_RIGHT: intcode::Memory = 1;
-        const PADDLE_NEUTRAL: intcode::Memory = 0;
-        const PADDLE_LEFT: intcode::Memory = -1;
-
-        let mut output = [0, 0, 0];
-        let mut index = 0;
+    pub fn step(&mut self, joystick: Option<Joystick>) -> Event {
         loop {
             match self.cpu.run().expect("invalid state") {
-                intcode::Run::Halt => break,
+                intcode::Run::Halt => break Event::Halt,
                 intcode::Run::NeedInput => {
-                    match (self.horizontal_paddle_position, self.ball_position) {
-                        (Some((paddle_x, _)), Some((ball_x, _))) => match paddle_x.cmp(&ball_x) {
-                            Ordering::Less => self.cpu.set_input(Some(PADDLE_RIGHT)),
-                            Ordering::Equal => self.cpu.set_input(Some(PADDLE_NEUTRAL)),
-                            Ordering::Greater => self.cpu.set_input(Some(PADDLE_LEFT)),
-                        },
-                        _ => unreachable!(),
+                    if let Some(joystick) = &joystick {
+                        self.cpu.set_input(Some(i128::from(joystick)));
+                    } else {
+                        break Event::NeedInput;
                     }
                 }
                 intcode::Run::Output(value) => {
-                    output[index] = value;
-                    if index == 2 {
-                        if output[0] == -1 && output[1] == 0 {
+                    self.output[self.output_index] = value;
+                    if self.output_index == 2 {
+                        if self.output[0] == -1 && self.output[1] == 0 {
                             self.score = Some(value);
+
+                            self.output_index = (self.output_index + 1) % 3;
+
+                            break Event::Score(value);
                         } else {
-                            match Tile::try_from(value).expect("invalid tile id") {
+                            let tile = Tile::try_from(value).expect("invalid tile id");
+                            match tile {
                                 Tile::HorizontalPaddle => {
-                                    self.horizontal_paddle_position = Some((output[0], output[1]));
+                                    self.horizontal_paddle_position =
+                                        Some((self.output[0], self.output[1]));
                                 }
                                 Tile::Ball => {
-                                    self.ball_position = Some((output[0], output[1]));
+                                    self.ball_position = Some((self.output[0], self.output[1]));
                                 }
                                 _ => {}
                             }
+
+                            self.output_index = (self.output_index + 1) % 3;
+
+                            break Event::Draw(tile, (self.output[0], self.output[1]));
                         }
+                    } else {
+                        self.output_index = (self.output_index + 1) % 3;
                     }
-                    index = (index + 1) % 3;
                 }
             }
         }
+    }
 
-        self.score.expect("no score")
+    pub fn play(&mut self) -> Event {
+        match self.step(None) {
+            Event::NeedInput => {
+                match (self.horizontal_paddle_position, self.ball_position) {
+                    (Some((paddle_x, _)), Some((ball_x, _))) => match paddle_x.cmp(&ball_x) {
+                        Ordering::Less => self.cpu.set_input(Some(PADDLE_RIGHT)),
+                        Ordering::Equal => self.cpu.set_input(Some(PADDLE_NEUTRAL)),
+                        Ordering::Greater => self.cpu.set_input(Some(PADDLE_LEFT)),
+                    },
+                    _ => unreachable!(),
+                }
+
+                Event::NeedInput
+            }
+            e => e,
+        }
     }
 }
 
-pub fn part_2() -> intcode::Memory {
-    let mut game = Game::new(&ISTRUCTIONS);
+pub fn part_1() -> usize {
+    let mut game = Game::new(&ISTRUCTIONS, None);
+    let generator = || match game.step(None) {
+        Event::Halt => None,
+        Event::Draw(tile, _) => Some(tile),
+        _ => unreachable!(),
+    };
 
-    game.play()
+    iter::from_fn(generator)
+        .filter(|v| match v {
+            Tile::Block => true,
+            _ => false,
+        })
+        .count()
+}
+
+pub fn part_2() -> intcode::Memory {
+    let mut game = Game::new(&ISTRUCTIONS, Some(2));
+
+    while game.play() != Event::Halt {}
+
+    game.score().unwrap()
 }
 
 #[cfg(test)]
