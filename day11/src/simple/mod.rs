@@ -8,7 +8,7 @@ type Point = (i32, i32);
 
 static DIRECTIONS: [Point; 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 
-struct Painter {
+pub struct Painter {
     cpu: CPU,
     panel: HashMap<Point, Memory>,
     position: Point,
