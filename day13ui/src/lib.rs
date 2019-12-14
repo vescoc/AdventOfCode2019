@@ -79,9 +79,10 @@ impl Component for Model {
                     },
                 ));
 
+                self.score = 0;
                 self.task = Some(self.render.request_animation_frame(self.callback.clone()));
 
-                false
+                true
             }
             Msg::Reset => {
                 if let Some(canvas) = self.canvas_ref.try_into::<CanvasElement>() {
