@@ -9,16 +9,19 @@ use std::collections::HashMap;
 
 use regex::Regex;
 
+pub mod fast;
+pub mod simple;
+
 lazy_static! {
     static ref RE: Regex = Regex::new(r"(\d+)\s+([A-Z]+)").unwrap();
     static ref REACTIONS: Reactions<'static> = parse(include_str!("../data.txt"));
 }
 
-type Reactions<'a> = HashMap<&'a str, Reaction<'a>>;
-type ReactionPart<'a> = (u64, &'a str);
+pub type Reactions<'a> = HashMap<&'a str, Reaction<'a>>;
+pub type ReactionPart<'a> = (u64, &'a str);
 
 #[derive(Debug, PartialEq)]
-struct Reaction<'a> {
+pub struct Reaction<'a> {
     quantity: u64,
     components: Vec<ReactionPart<'a>>,
 }
@@ -41,7 +44,7 @@ fn parse_part(part: &str) -> ReactionPart {
     )
 }
 
-fn parse(data: &str) -> Reactions {
+pub fn parse(data: &str) -> Reactions {
     data.lines()
         .map(|l| {
             let mut parts = l.split("=>");
@@ -60,77 +63,8 @@ fn parse(data: &str) -> Reactions {
         .collect()
 }
 
-fn substitute_one<'a>(
-    reactions: &Reactions<'a>,
-    part: &ReactionPart<'a>,
-    pool: &mut HashMap<&'a str, u64>,
-) -> Vec<ReactionPart<'a>> {
-    if let Some(reaction) = &reactions.get(part.1) {
-        let target_value = part.0;
-
-        let pool_value = pool.get(part.1).copied().unwrap_or_default();
-
-        let quantity = reaction.quantity;
-
-        let (multiplier, new_pool) = if target_value < pool_value {
-            (0, pool_value - target_value)
-        } else {
-            let target_to_produce = target_value - pool_value;
-            let (m, r) = (target_to_produce / quantity, target_to_produce % quantity);
-            let m = if r > 0 { m + 1 } else { m };
-            (m, quantity * m + pool_value - target_value)
-        };
-
-        pool.insert(part.1, new_pool);
-
-        reaction
-            .components
-            .iter()
-            .map(|(quantity, component)| (quantity * multiplier, *component))
-            .collect()
-    } else {
-        vec![*part]
-    }
-}
-
-fn substitute<'a>(
-    reactions: &Reactions<'a>,
-    parts: &[ReactionPart<'a>],
-    pool: &mut HashMap<&'a str, u64>,
-) -> Vec<ReactionPart<'a>> {
-    parts
-        .iter()
-        .flat_map(|part| substitute_one(reactions, part, pool))
-        .fold(
-            HashMap::<&str, u64>::new(),
-            |mut acc, (quantity, component)| {
-                *acc.entry(component).or_default() += quantity;
-                acc
-            },
-        )
-        .into_iter()
-        .map(|(component, quantity)| (quantity, component))
-        .collect()
-}
-
-fn solve_1(reactions: &Reactions, part: ReactionPart) -> u64 {
-    let mut pool = HashMap::new();
-    let mut parts = vec![part];
-    loop {
-        parts = substitute(reactions, &parts, &mut pool);
-        if parts.len() == 1 {
-            break;
-        }
-    }
-
-    let part = parts[0];
-    assert_eq!(part.1, "ORE");
-
-    part.0
-}
-
 #[allow(clippy::unreadable_literal)]
-fn solve_2(reactions: &Reactions) -> u64 {
+fn solve_2(reactions: &Reactions, solve_1: fn(&Reactions, ReactionPart<'static>) -> u64) -> u64 {
     const TARGET: u64 = 1000000000000;
 
     let step = solve_1(reactions, (1, "FUEL"));
@@ -166,21 +100,12 @@ fn solve_2(reactions: &Reactions) -> u64 {
     lower
 }
 
-pub fn part_1() -> u64 {
-    solve_1(&REACTIONS, (1, "FUEL"))
-}
-
-pub fn part_2() -> u64 {
-    solve_2(&REACTIONS)
-}
-
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
-    use test::Bencher;
 
     lazy_static! {
-        static ref REACTIONS_EXAMPLE_1: Reactions<'static> = parse(
+        pub static ref REACTIONS_EXAMPLE_1: Reactions<'static> = parse(
             r"157 ORE => 5 NZVS
 165 ORE => 6 DCFZ
 44 XJWVT, 5 KHKGT, 1 QDVJ, 29 NZVS, 9 GPVTF, 48 HKGWZ => 1 FUEL
@@ -191,7 +116,7 @@ mod tests {
 165 ORE => 2 GPVTF
 3 DCFZ, 7 NZVS, 5 HKGWZ, 10 PSHF => 8 KHKGT"
         );
-        static ref REACTIONS_EXAMPLE_2: Reactions<'static> = parse(
+        pub static ref REACTIONS_EXAMPLE_2: Reactions<'static> = parse(
             r"2 VPVL, 7 FWMGM, 2 CXFTF, 11 MNCFX => 1 STKFG
 17 NVRVD, 3 JNWZP => 8 VPVL
 53 STKFG, 6 MNCFX, 46 VJHF, 81 HVMC, 68 CXFTF, 25 GNMV => 1 FUEL
@@ -205,7 +130,7 @@ mod tests {
 1 VJHF, 6 MNCFX => 4 RFSQX
 176 ORE => 6 VJHF"
         );
-        static ref REACTIONS_EXAMPLE_3: Reactions<'static> = parse(
+        pub static ref REACTIONS_EXAMPLE_3: Reactions<'static> = parse(
             r"171 ORE => 8 CNZTR
 7 ZLQW, 3 BMBT, 9 XCVML, 26 XMNCP, 1 WPTQ, 2 MZWV, 1 RJRHP => 4 PLWSL
 114 ORE => 4 BHXH
@@ -248,145 +173,12 @@ mod tests {
     }
 
     #[test]
-    fn test_substitute_one() {
-        let reactions = parse(
-            r"10 ORE => 10 A
-1 ORE => 1 B
-7 A, 1 B => 1 C
-7 A, 1 C => 1 D
-7 A, 1 D => 1 E
-7 A, 1 E => 1 FUEL",
-        );
-
-        let mut pool = vec![("FUEL", 1)].into_iter().collect();
-        assert_eq!(
-            substitute_one(&reactions, &(2, "FUEL"), &mut pool),
-            vec![(7, "A"), (1, "E")]
-        );
-
-        assert_eq!(pool, vec![("FUEL", 0)].into_iter().collect());
+    fn same_results_part_1() {
+        assert_eq!(simple::part_1(), fast::part_1());
     }
 
     #[test]
-    #[allow(non_snake_case)]
-    fn test_substitute_one_ORE() {
-        let reactions = parse(
-            r"10 ORE => 10 A
-1 ORE => 1 B
-7 A, 1 B => 1 C
-7 A, 1 C => 1 D
-7 A, 1 D => 1 E
-7 A, 1 E => 1 FUEL",
-        );
-
-        let mut pool = vec![("FUEL", 1)].into_iter().collect();
-        assert_eq!(
-            substitute_one(&reactions, &(2, "ORE"), &mut pool),
-            vec![(2, "ORE")]
-        );
-
-        assert_eq!(pool, vec![("FUEL", 1)].into_iter().collect());
-    }
-
-    #[test]
-    fn test_substitute() {
-        let reactions = parse(
-            r"10 ORE => 10 A
-1 ORE => 1 B
-7 A, 1 B => 1 C
-7 A, 1 C => 1 D
-7 A, 1 D => 1 E
-7 A, 1 E => 1 FUEL",
-        );
-
-        let mut pool = vec![("E", 1)].into_iter().collect();
-
-        let mut result = substitute(&reactions, &[(2, "E"), (2, "D")], &mut pool);
-        result.sort_by(|(_, a), (_, b)| a.cmp(b));
-
-        assert_eq!(result, vec![(21, "A"), (2, "C"), (1, "D")]);
-        assert_eq!(pool, vec![("E", 0), ("D", 0)].into_iter().collect());
-    }
-
-    #[test]
-    fn test_example_1_1() {
-        assert_eq!(
-            solve_1(
-                &parse(
-                    r"10 ORE => 10 A
-1 ORE => 1 B
-7 A, 1 B => 1 C
-7 A, 1 C => 1 D
-7 A, 1 D => 1 E
-7 A, 1 E => 1 FUEL"
-                ),
-                (1, "FUEL"),
-            ),
-            31
-        )
-    }
-
-    #[test]
-    fn test_example_1_2() {
-        assert_eq!(
-            solve_1(
-                &parse(
-                    r"9 ORE => 2 A
-8 ORE => 3 B
-7 ORE => 5 C
-3 A, 4 B => 1 AB
-5 B, 7 C => 1 BC
-4 C, 1 A => 1 CA
-2 AB, 3 BC, 4 CA => 1 FUEL"
-                ),
-                (1, "FUEL"),
-            ),
-            165
-        )
-    }
-
-    #[test]
-    fn test_example_1_3() {
-        assert_eq!(solve_1(&REACTIONS_EXAMPLE_1, (1, "FUEL"),), 13312)
-    }
-
-    #[test]
-    #[allow(clippy::unreadable_literal)]
-    fn test_example_1_4() {
-        assert_eq!(solve_1(&REACTIONS_EXAMPLE_2, (1, "FUEL"),), 180697)
-    }
-
-    #[test]
-    #[allow(clippy::unreadable_literal)]
-    fn test_example_1_5() {
-        assert_eq!(solve_1(&REACTIONS_EXAMPLE_3, (1, "FUEL"),), 2210736)
-    }
-
-    #[test]
-    #[allow(clippy::unreadable_literal)]
-    fn test_example_2_1() {
-        assert_eq!(solve_2(&REACTIONS_EXAMPLE_1), 82892753);
-    }
-
-    #[test]
-    #[allow(clippy::unreadable_literal)]
-    fn test_example_2_2() {
-        assert_eq!(solve_2(&REACTIONS_EXAMPLE_2), 5586022);
-    }
-
-    #[test]
-    #[allow(clippy::unreadable_literal)]
-    fn test_example_2_3() {
-        assert_eq!(solve_2(&REACTIONS_EXAMPLE_3), 460664);
-    }
-
-    #[bench]
-    fn bench_part_1(b: &mut Bencher) {
-        b.iter(part_1);
-    }
-
-    #[bench]
-    fn bench_part_2(b: &mut Bencher) {
-        b.iter(part_2);
+    fn same_results_part_2() {
+        assert_eq!(simple::part_1(), fast::part_1());
     }
 }

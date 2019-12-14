@@ -1,6 +1,10 @@
 use std::time::Instant;
 
-use day14::{part_1, part_2};
+#[cfg(feature = "simple")]
+use day14::simple::{part_1, part_2};
+
+#[cfg(not(feature = "simple"))]
+use day14::fast::{part_1, part_2};
 
 fn main() {
     let now = Instant::now();
