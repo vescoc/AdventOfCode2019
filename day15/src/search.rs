@@ -9,7 +9,7 @@ pub type Point = (i32, i32);
 pub enum Tile {
     Empty,
     Wall,
-    Oxygene,
+    OxygenSystem,
 }
 
 impl TryInto<Tile> for intcode::Memory {
@@ -19,7 +19,7 @@ impl TryInto<Tile> for intcode::Memory {
         match self {
             0 => Ok(Tile::Wall),
             1 => Ok(Tile::Empty),
-            2 => Ok(Tile::Oxygene),
+            2 => Ok(Tile::OxygenSystem),
             _ => Err("invalid tile"),
         }
     }
@@ -117,7 +117,7 @@ impl Search {
                                 }));
                                 acc
                             }),
-                            Ok(Tile::Oxygene) => Err(Ok((p, {
+                            Ok(Tile::OxygenSystem) => Err(Ok((p, {
                                 let mut moves = moves.to_owned();
                                 moves.push(m);
                                 moves

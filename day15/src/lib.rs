@@ -7,13 +7,13 @@ extern crate lazy_static;
 use intcode;
 
 lazy_static! {
-    static ref PROGRAM: Vec<intcode::Memory> = intcode::parse(include_str!("../data.txt"));
+    pub static ref PROGRAM: Vec<intcode::Memory> = intcode::parse(include_str!("../data.txt"));
 }
 
 pub mod search;
 
 fn solve_1(program: &[intcode::Memory]) -> usize {
-    let mut search = search::Search::new(program, |v| v == search::Tile::Oxygene);
+    let mut search = search::Search::new(program, |v| v == search::Tile::OxygenSystem);
     loop {
         match search.step().expect("no solution...") {
             search::Step::Found(_, m, _) => break m.len(),
@@ -23,7 +23,7 @@ fn solve_1(program: &[intcode::Memory]) -> usize {
 }
 
 fn solve_2(program: &[intcode::Memory]) -> usize {
-    let mut search = search::Search::new(program, |v| v == search::Tile::Oxygene);
+    let mut search = search::Search::new(program, |v| v == search::Tile::OxygenSystem);
     'outher: loop {
         match search.step().expect("no solution...") {
             search::Step::Found(p, _, cpu) => {
