@@ -15,7 +15,7 @@ fn main() {
     let elapsed = now.elapsed();
 
     println!(
-        "elapsed {}ms ({}ns)",
+        "elapsed: {}ms ({}ns)",
         elapsed.as_millis(),
         elapsed.as_nanos()
     );

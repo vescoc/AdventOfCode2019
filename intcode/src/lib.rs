@@ -353,6 +353,17 @@ impl CPU {
     }
 }
 
+impl ToOwned for CPU {
+    type Owned = CPU;
+
+    fn to_owned(&self) -> Self {
+        Self {
+            memory: self.memory.clone(),
+            ..*self            
+        }
+    }
+}
+
 pub fn parse<T: FromStr>(data: &str) -> Vec<T> {
     data.trim()
         .split(SEPARATOR)
