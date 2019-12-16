@@ -111,6 +111,21 @@ mod tests {
     }
 
     #[bench]
+    fn bench_pattern_1(b: &mut Bencher) {
+        b.iter(|| pattern(1).take(DATA.len() * 10000).count());
+    }
+
+    #[bench]
+    fn bench_pattern_50(b: &mut Bencher) {
+        b.iter(|| pattern(50).take(DATA.len() * 10000).count());
+    }
+
+    #[bench]
+    fn bench_pattern_100(b: &mut Bencher) {
+        b.iter(|| pattern(100).take(DATA.len() * 10000).count());
+    }
+
+    #[bench]
     fn bench_part_1(b: &mut Bencher) {
         b.iter(part_1);
     }
