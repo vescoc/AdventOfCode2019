@@ -8,8 +8,6 @@ lazy_static! {
     static ref DATA: Vec<i32> = parse(include_str!("../data.txt"));
 }
 
-const BASE_PATTERN: [i32; 4] = [0, 1, 0, -1];
-
 fn parse(data: &str) -> Vec<i32> {
     data.trim()
         .chars()
@@ -28,27 +26,33 @@ fn join(data: &[i32]) -> String {
         .collect()
 }
 
-fn pattern(i: usize) -> impl Iterator<Item = i32> {
-    BASE_PATTERN
-        .iter()
-        .flat_map(move |&v| std::iter::repeat(v).take(i))
-        .cycle()
-        .skip(1)
-}
-
 fn phase(data: &[i32]) -> Vec<i32> {
-    std::iter::repeat(data)
-        .take(data.len())
-        .enumerate()
-        .map(|(i, data)| {
-            data.iter()
-                .zip(pattern(i + 1))
-                .map(|(a, b)| a * b)
-                .sum::<i32>()
-                .abs()
-                % 10
-        })
-        .collect()
+    let len = data.len();
+    let mut result = Vec::with_capacity(len);
+
+    for i in 1..=len {
+        let mut a = 0;
+        let mut b = 0;
+        let t = len / (4 * i) + if len % (4 * i) != 0 { 1 } else { 0 };
+        for k in 0..t {
+            let k = 4 * i * k;
+            let idx = k + i - 1;
+            if idx < len {
+                a += data[idx..(idx + i).min(len)].iter().sum::<i32>();
+            }
+
+            let idx = k + 3 * i - 1;
+            if idx < len {
+                b += data[idx..(idx + i).min(len)].iter().sum::<i32>();
+            }
+        }
+
+        let v = (a - b).abs() % 10;
+
+        result.push(v);
+    }
+
+    result
 }
 
 fn solve_1(data: &[i32], count: usize) -> Vec<i32> {
@@ -59,12 +63,27 @@ fn solve_1(data: &[i32], count: usize) -> Vec<i32> {
     current
 }
 
+fn solve_2(data: &[i32], count: usize) -> String {
+    let mut current = std::iter::repeat(data.to_vec())
+        .take(10_000)
+        .flatten()
+        .collect::<Vec<i32>>();
+    for _i in 0..count {
+        println!("{}", _i);
+        current = phase(&current);
+    }
+
+    let index = join(&data[0..7]).parse().expect("invalid number");
+
+    join(&current[index..index + 8])
+}
+
 pub fn part_1() -> String {
     join(&solve_1(&DATA, 100)[0..8])
 }
 
 pub fn part_2() -> String {
-    unimplemented!()
+    solve_2(&DATA, 100)
 }
 
 #[cfg(test)]
@@ -73,17 +92,18 @@ mod tests {
     use test::Bencher;
 
     #[test]
-    fn test_pattern() {
-        assert_eq!(pattern(1).take(4).collect::<Vec<i32>>(), vec![1, 0, -1, 0]);
-        assert_eq!(
-            pattern(2).take(8).collect::<Vec<i32>>(),
-            vec![0, 1, 1, 0, 0, -1, -1, 0]
-        );
+    fn test_phase_1() {
+        assert_eq!(join(&phase(&parse("12345678"))), "48226158");
     }
 
     #[test]
-    fn test_phase() {
-        assert_eq!(join(&phase(&parse("12345678"))), "48226158");
+    fn test_phase_2() {
+        assert_eq!(join(&phase(&phase(&parse("12345678")))), "34040438");
+    }
+
+    #[test]
+    fn test_phase_failing() {
+        assert_eq!(join(&phase(&parse("48226158"))), "34040438");
     }
 
     #[test]
@@ -110,19 +130,12 @@ mod tests {
         );
     }
 
-    #[bench]
-    fn bench_pattern_1(b: &mut Bencher) {
-        b.iter(|| pattern(1).take(DATA.len() * 10000).count());
-    }
-
-    #[bench]
-    fn bench_pattern_50(b: &mut Bencher) {
-        b.iter(|| pattern(50).take(DATA.len() * 10000).count());
-    }
-
-    #[bench]
-    fn bench_pattern_100(b: &mut Bencher) {
-        b.iter(|| pattern(100).take(DATA.len() * 10000).count());
+    #[test]
+    fn test_example_2_1() {
+        assert_eq!(
+            solve_2(&parse("03036732577212944063491565474664"), 100),
+            String::from("84462026")
+        );
     }
 
     #[bench]
