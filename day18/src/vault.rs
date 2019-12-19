@@ -12,21 +12,11 @@ enum Tile {
     Key(char),
 }
 
-#[derive(PartialEq, Eq, Hash)]
-struct State(Point, Vec<char>);
-
-impl State {
-    fn new(point: Point, keys: &[char]) -> Self {
-        let mut keys = keys.to_owned();
-        keys.sort();
-        Self(point, keys)
-    }
-}
-
 pub struct Vault {
     tiles: Vec<Vec<Tile>>,
     start_position: Point,
     keys: Vec<char>,
+    keys_set: HashSet<char>,
 }
 
 impl Vault {
@@ -44,15 +34,13 @@ impl Vault {
 
     fn find_paths_to_keys(
         &self,
-        start_position: Point,
-        discovered_keys: &[char],
-    ) -> Vec<Vec<Point>> {
+        start_position: &Point,
+        discovered_keys: &HashSet<char>,
+	prune: usize,
+    ) -> Vec<(char, Vec<Point>)> {
         let mut remaining_keys = self
-            .keys
-            .iter()
-            .copied()
-            .collect::<HashSet<char>>()
-            .difference(&discovered_keys.iter().copied().collect::<HashSet<char>>())
+            .keys_set
+            .difference(discovered_keys)
             .copied()
             .collect::<HashSet<char>>();
 
@@ -72,9 +60,9 @@ impl Vault {
                     Some(Tile::Key(c)) => Some((
                         (x, y),
                         if remaining_keys.contains(&c) {
-                            None
-                        } else {
                             Some(c)
+                        } else {
+                            None
                         },
                     )),
                     _ => None,
@@ -83,7 +71,7 @@ impl Vault {
                 .into_iter()
         };
 
-        queue.push_back((start_position, vec![]));
+        queue.push_back((*start_position, vec![]));
         loop {
             if remaining_keys.is_empty() {
                 break result;
@@ -95,17 +83,19 @@ impl Vault {
                             result.push({
                                 let mut moves = moves.to_owned();
                                 moves.push(new_position);
-                                moves
+                                (new_key, moves)
                             });
 
                             remaining_keys.remove(&new_key);
                         }
                         None => {
-                            queue.push_back((new_position, {
-                                let mut moves = moves.to_owned();
-                                moves.push(new_position);
-                                moves
-                            }));
+			    if moves.len() + 1 < prune {
+				queue.push_back((new_position, {
+                                    let mut moves = moves.to_owned();
+                                    moves.push(new_position);
+                                    moves
+				}));
+			    }
                         }
                     }
                 });
@@ -116,70 +106,40 @@ impl Vault {
     }
 
     pub fn search(&self) -> Result<(Vec<Point>, Vec<char>), String> {
-        let mut queue = VecDeque::new();
-        let mut visited = HashSet::new();
+	let mut candidate: Option<(Vec<Point>, Vec<char>)> = None;
+	let mut queue = vec![]; // VecDeque::new();
 
-        if true {
-            unimplemented!();
-        }
+	queue.push((vec![self.start_position], vec![]));
+	loop {
+	    if let Some((path, discovered_keys)) = queue.pop() {
+		let prune = candidate.as_ref().map(|(v, _)| v.len()).unwrap_or(std::usize::MAX);
+		let path_len = path.len();
+		//println!("{} [{}] {:?} [{}]", prune, path_len, discovered_keys, queue.len());
+		if path_len < prune {
+		    let discovered_keys_set = discovered_keys.iter().copied().collect::<HashSet<char>>();
+		    for (c, mut path_to) in self.find_paths_to_keys(path.last().unwrap(), &discovered_keys_set, prune - path_len) {
+			let mut discovered_keys = discovered_keys.to_owned();
+			discovered_keys.push(c);
 
-        let next = |(x, y), keys: &[char], visited: &HashSet<State>| {
-            vec![(1, 0), (-1, 0), (0, 1), (0, -1)]
-                .iter()
-                .map(|(dx, dy)| ((x as i128 + dx) as usize, (y as i128 + dy) as usize))
-                .filter(|(x, y)| !visited.contains(&State::new((*x, *y), keys)))
-                .filter_map(|(x, y)| match self.get(x, y) {
-                    Some(Tile::Empty) => Some(((x, y), None)),
-                    Some(Tile::Door(c)) if keys.contains(&c) => Some(((x, y), None)),
-                    Some(Tile::Key(c)) => {
-                        Some(((x, y), if keys.contains(&c) { None } else { Some(c) }))
-                    }
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-        };
+			let mut discovered_keys_set = discovered_keys_set.to_owned();
+			discovered_keys_set.insert(c);
 
-        queue.push_back((self.start_position, vec![], vec![self.start_position]));
-        loop {
-            let (position, keys, moves) = queue
-                .pop_front()
-                .ok_or_else(|| String::from("no solution!"))?;
-            //println!("analyze [{}] position: {:?}, keys: {:?}, moves: {:?}", moves.len(), position, keys, moves);
-            if self.keys == {
-                let mut keys = keys.to_owned();
-                keys.sort();
-                keys
-            } {
-                break Ok((moves, keys));
-            } else {
-                visited.insert(State::new(position, &keys));
-                next(position, &keys, &visited).for_each(|(new_position, new_key)| match new_key {
-                    Some(new_key) => {
-                        queue.push_back((
-                            new_position,
-                            {
-                                let mut keys = keys.to_owned();
-                                keys.push(new_key);
-                                keys
-                            },
-                            {
-                                let mut moves = moves.to_owned();
-                                moves.push(new_position);
-                                moves
-                            },
-                        ));
-                    }
-                    None => {
-                        queue.push_back((new_position, keys.to_owned(), {
-                            let mut moves = moves.to_owned();
-                            moves.push(new_position);
-                            moves
-                        }));
-                    }
-                });
-            }
-        }
+			let mut path = path.to_owned();
+			path.append(&mut path_to);
+			
+			if self.keys_set == discovered_keys_set {
+			    candidate = Some((path, discovered_keys));
+			} else {
+			    queue.push((path, discovered_keys));
+			}
+		    }
+		}
+	    } else {
+		break;
+	    }
+	}
+
+	candidate.ok_or_else(|| String::from("no solution!"))
     }
 }
 
@@ -278,7 +238,8 @@ impl FromStr for Vault {
             tiles,
             start_position: start_position
                 .ok_or_else(|| String::from("cannot find start_position"))?,
-            keys,
+            keys: keys.to_owned(),
+	    keys_set: keys.into_iter().collect(),
         })
     }
 }
@@ -288,7 +249,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_example_1_1() {
+    fn test_find_path_simple() {
         let vault = r"#########
 #b.A.@.a#
 #########"
@@ -296,8 +257,58 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            vault.find_paths_to_keys(vault.start_position, &['a']),
-            vec![vec![(6, 1), (7, 1)]],
+            vault.find_paths_to_keys(&vault.start_position,
+				     &HashSet::new(),
+				     std::usize::MAX),
+            vec![('a', vec![(6, 1), (7, 1)])],
+        )
+    }
+
+    #[test]
+    fn test_find_path_discovered() {
+        let vault = r"#########
+#b.A.@.a#
+#########"
+            .parse::<Vault>()
+            .unwrap();
+
+        assert_eq!(
+            vault.find_paths_to_keys(&vault.start_position,
+				     &['a'].iter().copied().collect(),
+				     std::usize::MAX),
+            vec![('b', vec![(4, 1), (3, 1), (2, 1), (1, 1)])],
+        )
+    }
+
+    #[test]
+    fn test_find_path_prune() {
+        let vault = r"#########
+#b.A.@.a#
+#########"
+            .parse::<Vault>()
+            .unwrap();
+
+        assert_eq!(
+            vault.find_paths_to_keys(&vault.start_position,
+				     &['a'].iter().copied().collect(),
+				     3),
+            Vec::<(char, Vec<_>)>::new(),
+        )
+    }
+
+    #[test]
+    fn test_find_path_prune_hit() {
+        let vault = r"#########
+#b.A.@.a#
+#########"
+            .parse::<Vault>()
+            .unwrap();
+
+        assert_eq!(
+            vault.find_paths_to_keys(&vault.start_position,
+				     &['a'].iter().copied().collect(),
+				     5),
+            vec![('b', vec![(4, 1), (3, 1), (2, 1), (1, 1)])],
         )
     }
 }
