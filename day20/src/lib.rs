@@ -12,13 +12,22 @@ lazy_static! {
 }
 
 const DIRECTIONS: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
+const AA_TELEPORT_ID: &TeleportID = &['A', 'A'];
+const ZZ_TELEPORT_ID: &TeleportID = &['Z', 'Z'];
 
 type Point = (usize, usize);
 type TeleportID = [char; 2];
 
+#[derive(Debug, PartialEq)]
+enum TeleportType {
+    Outher,
+    Inner,
+}
+
+#[derive(Debug)]
 enum Tile {
     Empty,
-    Teleport(TeleportID),
+    Teleport(TeleportID, TeleportType),
 }
 
 struct Maze {
@@ -31,7 +40,7 @@ impl Maze {
         let mut visited = HashSet::new();
         let mut queue = VecDeque::new();
 
-        queue.push_back((self.teleports[&['A', 'A']][0], vec![]));
+        queue.push_back((self.teleports[AA_TELEPORT_ID][0], vec![]));
         loop {
             if let Some((current_position, current_moves)) = queue.pop_front() {
                 visited.insert(current_position);
@@ -51,8 +60,8 @@ impl Maze {
                                 }));
                             }
                         }
-                        Some(Tile::Teleport(teleport)) => {
-                            if teleport == &['Z', 'Z'] {
+                        Some(Tile::Teleport(teleport, _)) => {
+                            if teleport == ZZ_TELEPORT_ID {
                                 return Ok({
                                     let mut moves = current_moves;
                                     moves.push(current_position);
@@ -68,6 +77,60 @@ impl Maze {
                                         moves.push(current_position.to_owned());
                                         moves
                                     }));
+                                }
+                            }
+                        }
+                        None => {}
+                    }
+                }
+            } else {
+                break Err(String::from("no solution!"));
+            }
+        }
+    }
+
+    fn search_pluto(&self, cutoff: usize) -> Result<usize, String> {
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+
+        queue.push_back((self.teleports[AA_TELEPORT_ID][0], 0, 0));
+        loop {
+            if let Some((current_position, current_level, current_moves)) = queue.pop_front() {
+                visited.insert((current_position, current_level));
+
+                for (dx, dy) in DIRECTIONS.iter() {
+                    let next_position = (
+                        (current_position.0 as i32 + dx) as usize,
+                        (current_position.1 as i32 + dy) as usize,
+                    );
+                    match self.map.get(&next_position) {
+                        Some(Tile::Empty) => {
+                            if !visited.contains(&(next_position, current_level)) {
+                                queue.push_back((next_position, current_level, current_moves + 1));
+                            }
+                        }
+                        Some(Tile::Teleport(teleport, teleport_type)) => {
+                            if teleport == ZZ_TELEPORT_ID && current_level == 0 {
+                                return Ok(current_moves);
+                            } else if current_level > 0 || *teleport_type != TeleportType::Outher {
+                                let next_level = match teleport_type {
+                                    TeleportType::Outher => current_level - 1,
+                                    TeleportType::Inner => current_level + 1,
+                                };
+
+                                if next_level < cutoff {
+                                    if let Some(&next_position) = self.teleports[teleport]
+                                        .iter()
+                                        .find(|&p| *p != current_position)
+                                    {
+                                        if !visited.contains(&(next_position, next_level)) {
+                                            queue.push_back((
+                                                next_position,
+                                                next_level,
+                                                current_moves + 1,
+                                            ));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -116,9 +179,19 @@ impl FromStr for Maze {
                                 (-1, 0) | (0, -1) => [c1, c0],
                                 _ => [c0, c1],
                             };
+
                             let p = ((x as i32 + dx) as usize, (y as i32 + dy) as usize);
                             teleports.entry(teleport).or_default().push((x, y));
-                            map.insert(p, Tile::Teleport(teleport));
+
+                            let teleport_type = match get(*dx * 3, *dy * 3) {
+                                Some(' ') => TeleportType::Inner,
+                                None => TeleportType::Outher,
+                                Some(c) => return Err(format!("invalid teleport type: {}", c)),
+                            };
+
+                            let teleport = Tile::Teleport(teleport, teleport_type);
+
+                            map.insert(p, teleport);
                         } else {
                             return Err(String::from("invalid teleport"));
                         }
@@ -135,12 +208,17 @@ fn solve_1(data: &str) -> usize {
     data.parse::<Maze>().unwrap().search().unwrap().len() - 1
 }
 
+fn solve_2(data: &str) -> usize {
+    // cutoff 26: try...
+    data.parse::<Maze>().unwrap().search_pluto(26).unwrap()
+}
+
 pub fn part_1() -> usize {
     solve_1(&DATA)
 }
 
 pub fn part_2() -> usize {
-    todo!()
+    solve_2(&DATA)
 }
 
 #[cfg(test)]
@@ -148,9 +226,8 @@ mod tests {
     use super::*;
     use test::Bencher;
 
-    #[test]
-    fn test_example_1_1() {
-        let maze = r"         A           
+    lazy_static! {
+        static ref MAZE_DATA_1: &'static str = r"         A           
          A           
   #######.#########  
   #######.........#  
@@ -168,21 +245,8 @@ DE..#######...###.#
 FG..#########.....#  
   ###########.#####  
              Z       
-             Z       "
-            .parse::<Maze>()
-            .expect("invalid data");
-
-        println!("{:?}", maze.teleports);
-
-        let path = maze.search().expect("invalid");
-        println!("path {:?}", path);
-
-        assert_eq!(path.len() - 1, 23);
-    }
-
-    #[test]
-    fn test_example_1_2() {
-        let maze = r"                   A               
+             Z       ";
+        static ref MAZE_DATA_2: &'static str = r"                   A               
                    A               
   #################.#############  
   #.#...#...................#.#.#  
@@ -219,33 +283,81 @@ YN......#               VT..#....QG
   #########.###.###.#############  
            B   J   C               
            U   P   P               ";
+        static ref MAZE_DATA_3: &'static str = r"             Z L X W       C                 
+             Z P Q B       K                 
+  ###########.#.#.#.#######.###############  
+  #...#.......#.#.......#.#.......#.#.#...#  
+  ###.#.#.#.#.#.#.#.###.#.#.#######.#.#.###  
+  #.#...#.#.#...#.#.#...#...#...#.#.......#  
+  #.###.#######.###.###.#.###.###.#.#######  
+  #...#.......#.#...#...#.............#...#  
+  #.#########.#######.#.#######.#######.###  
+  #...#.#    F       R I       Z    #.#.#.#  
+  #.###.#    D       E C       H    #.#.#.#  
+  #.#...#                           #...#.#  
+  #.###.#                           #.###.#  
+  #.#....OA                       WB..#.#..ZH
+  #.###.#                           #.#.#.#  
+CJ......#                           #.....#  
+  #######                           #######  
+  #.#....CK                         #......IC
+  #.###.#                           #.###.#  
+  #.....#                           #...#.#  
+  ###.###                           #.#.#.#  
+XF....#.#                         RF..#.#.#  
+  #####.#                           #######  
+  #......CJ                       NM..#...#  
+  ###.#.#                           #.###.#  
+RE....#.#                           #......RF
+  ###.###        X   X       L      #.#.#.#  
+  #.....#        F   Q       P      #.#.#.#  
+  ###.###########.###.#######.#########.###  
+  #.....#...#.....#.......#...#.....#.#...#  
+  #####.#.###.#######.#######.###.###.#.#.#  
+  #.......#.......#.#.#.#.#...#...#...#.#.#  
+  #####.###.#####.#.#.#.#.###.###.#.###.###  
+  #.......#.....#.#...#...............#...#  
+  #############.#.#.###.###################  
+               A O F   N                     
+               A A D   M                     ";
+    }
 
-        assert_eq!(solve_1(maze), 58);
+    #[test]
+    fn test_example_1_1() {
+        let maze = MAZE_DATA_1.parse::<Maze>().expect("invalid data");
+
+        println!("{:?}", maze.teleports);
+
+        let path = maze.search().expect("invalid");
+        println!("path {:?}", path);
+
+        assert_eq!(path.len() - 1, 23);
+    }
+
+    #[test]
+    fn test_example_1_2() {
+        assert_eq!(solve_1(&MAZE_DATA_2), 58);
+    }
+
+    #[test]
+    fn test_example_2_1() {
+        assert_eq!(solve_2(&MAZE_DATA_1), 26);
+    }
+
+    #[test]
+    #[should_panic(expected = "no solution!")]
+    fn test_example_2_2() {
+        let _ = solve_2(&MAZE_DATA_2);
+    }
+
+    #[test]
+    fn test_example_2_3() {
+        assert_eq!(solve_2(&MAZE_DATA_3), 396);
     }
 
     #[test]
     fn test_maze() {
-        let maze = r"         A           
-         A           
-  #######.#########  
-  #######.........#  
-  #######.#######.#  
-  #######.#######.#  
-  #######.#######.#  
-  #####  B    ###.#  
-BC...##  C    ###.#  
-  ##.##       ###.#  
-  ##...DE  F  ###.#  
-  #####    G  ###.#  
-  #########.#####.#  
-DE..#######...###.#  
-  #.#########.###.#  
-FG..#########.....#  
-  ###########.#####  
-             Z       
-             Z       "
-            .parse::<Maze>()
-            .expect("invalid data");
+        let maze = MAZE_DATA_1.parse::<Maze>().expect("invalid data");
 
         assert_eq!(maze.teleports.len(), 5);
     }
