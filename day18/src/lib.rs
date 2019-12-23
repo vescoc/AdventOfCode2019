@@ -15,15 +15,9 @@ fn solve_1(data: &str) -> (usize, Vec<char>) {
         .parse::<vault::Vault>()
         .unwrap_or_else(|e| panic!("invalid data: {}", e));
 
-    println!("{}", vault);
+    let (moves, keys) = vault.search().unwrap();
 
-    if true {
-	unimplemented!()
-    } else {
-	let (moves, keys) = vault.search().unwrap();
-
-	(moves - 1, keys)
-    }
+    (moves - 1, keys)
 }
 
 pub fn part_1() -> usize {

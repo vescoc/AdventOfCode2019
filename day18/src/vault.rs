@@ -1,4 +1,5 @@
 use std::collections::{HashSet, HashMap, VecDeque};
+use std::cell::RefCell;
 use std::fmt;
 use std::str::FromStr;
 
@@ -12,13 +13,39 @@ enum Tile {
     Key(char),
 }
 
+#[derive(PartialEq, Hash, Eq, Debug)]
+struct PathKey(Point, Vec<char>);
+
+impl PathKey {
+    fn new(position: &Point, keys: &HashSet<char>) -> Self {
+	let mut keys = keys.iter().copied().collect::<Vec<char>>();
+	keys.sort();
+
+	Self(*position, keys)
+    }
+}
+
+#[derive(PartialEq, Hash, Eq, Debug)]
+struct GraphKey(Vec<Point>, Vec<char>);
+
+impl GraphKey {
+    fn new(positions: &[Point], keys: &HashSet<char>) -> Self {
+	let mut keys = keys.iter().copied().collect::<Vec<char>>();
+	keys.sort();
+
+	Self(positions.to_vec(), keys)
+    }
+}
+
 pub struct Vault {
     tiles: Vec<Vec<Tile>>,
     start_position: Point,
     keys: Vec<char>,
     keys_set: HashSet<char>,
-    key_positions: HashMap<Tile, Point>,
-    door_positions: HashMap<Tile, Point>,
+    key_positions: HashMap<char, Point>,
+    door_positions: HashMap<char, Point>,
+    path_cache: RefCell<HashMap<PathKey, HashMap<char, usize>>>,
+    graph_cache: RefCell<HashMap<GraphKey, HashMap<char, usize>>>,
 }
 
 impl Vault {
@@ -34,76 +61,88 @@ impl Vault {
         self.tiles.get(y).and_then(|v| v.get(x).copied())
     }
 
-    fn find_paths_from(
-	&self,
-	start_position: &Point,
-    ) -> Vec<(char, HashSet<char>, HashSet<char>, usize)> {
-	let mut remaining_keys = self.keys_set.to_owned();
-
-	let mut result = vec![];
-
-	let mut queue = VecDeque::new();
-	let mut visited = HashSet::new();
-
-	let next = |(x, y), visited: &HashSet<Point>| {
-	    vec![(1, 0), (-1, 0), (0, 1), (0, -1)]
-		.iter()
-		.map(|(dx, dy)| ((x as i128 + dx) as usize, (y as i128 + dy) as usize))
-		.filter(|p| !visited.contains(p))
-		.filter_map(|(x, y)| match self.get(x, y) {
-		    Some(Tile::Empty) => Some(((x, y), None)),
-		    Some(t @ Tile::Door(_)) => Some(((x, y), Some(t))),
-		    Some(t @ Tile::Key(_)) => Some(((x, y), Some(t))),
-		    _ => None,			 
-		})
-		.collect::<Vec<_>>()
-		.into_iter()
-	};
-
-	let mut keys = HashSet::new();
-	let mut doors = HashSet::new();
-
-	match self.get(start_position.0, start_position.1) {
-	    Some(Tile::Key(k)) => { keys.insert(k); }
-	    Some(Tile::Door(d)) => { doors.insert(d); }
-	    _ => {}
+    fn bfs(&self, start_position: &Point, keys: &HashSet<char>) -> HashMap<char, usize> {
+	let path_key = PathKey::new(start_position, keys);
+	if let Some(hit) = self.path_cache.borrow().get(&path_key) {
+	    println!("paths_cache hit {:?}", path_key);
+	    return hit.to_owned();
 	}
 
-	queue.push_back((*start_position, keys, doors, 0));
-        loop {
-            if remaining_keys.is_empty() {
-                break result;
-            } else if let Some((position, keys, doors, moves)) = queue.pop_front() {
-                visited.insert(position);
-                next(position, &visited).for_each(|(new_position, tile)| {
-                    match tile {
-			Some(Tile::Key(k)) => {
-			    let mut keys = keys.to_owned();
-			    keys.insert(k);
-			    
-			    result.push((k, keys.to_owned(), doors.to_owned(), moves + 1));
+	let mut result = vec![];
+	let mut visited = HashSet::new();
+	let mut queue = VecDeque::new();
 
-			    remaining_keys.remove(&k);
-
-			    queue.push_back((new_position, keys, doors.to_owned(), moves + 1));
+	queue.push_back((*start_position, 0));
+	while let Some(((x, y), moves)) = queue.pop_front() {
+	    visited.insert((x, y));
+	    [(1, 0), (-1, 0), (0, 1), (0, -1)]
+		.iter()
+		.filter_map(|(dx, dy)| {
+		    let (x, y) = ((x as isize + dx) as usize, ((y as isize + dy) as usize));
+		    match self.get(x, y) {
+			_ if visited.contains(&(x, y)) => None,
+			Some(Tile::Empty) => Some(((x, y), Tile::Empty)),
+			Some(Tile::Door(d)) if keys.contains(&d) => Some(((x, y), Tile::Empty)),
+			Some(Tile::Key(k)) if !keys.contains(&k) => Some(((x, y), Tile::Key(k))),
+			_ => None,
+		    }
+		})
+		.for_each(|((x, y), t)| {
+		    match t {
+			Tile::Key(k) => {
+			    result.push((k, moves + 1));
 			}
-			Some(Tile::Door(d)) => {
-			    let mut doors = doors.to_owned();
-			    doors.insert(d);
-
-			    queue.push_back((new_position, keys.to_owned(), doors.to_owned(), moves + 1));
+			_ => {
+			    queue.push_back(((x, y), moves + 1));
 			}
-                        _ => queue.push_back((new_position, keys.to_owned(), doors.to_owned(), moves + 1)),
-                    }
-                });
-            } else {
-                break result;
-            }
-        }
+		    }
+		});
+	}
+
+	{
+	    let mut cache = self.path_cache.borrow_mut();
+	    println!("paths_cache fill {:?} {}", path_key, cache.len() + 1);
+	    cache.insert(path_key, result.iter().copied().collect());
+	}
+
+	result.into_iter().collect()
+    }
+
+    fn search_subgraph(&self, start_positions: &[Point], keys: &HashSet<char>) -> HashMap<Vec<char>, usize> {
+	let graph_key = GraphKey::new(start_positions, keys);
+	if let Some(hit) = self.graph_cache.borrow().get(&graph_key) {
+	    println!("graph_cache hit {:?}", graph_key);
+	    return hit;
+	}
+
+	start_positions
+	    .iter()
+	    .map(|position| {
+		self.bfs(position, keys)
+		    .into_iter()
+		    .map(|(key, steps)| {
+			self.search_subgraph(
+			    self.key_positions[key],
+			    {
+				let keys = keys.to_owned();
+				keys.insert(key);
+				keys
+			    },
+			)
+			    .into_iter()
+			    .map(|(v, sub_steps)| 
+	
+	{
+	    let mut cache = self.graph_cache.borrow_mut();
+	    println!("graph_cache fill {:?} {}", graph_key, cache.len() + 1);
+	    cache.insert(graph_key, result.iter().copied().collect());
+	}
+
+	result.into_iter().collect()
     }
 
     pub fn search(&self) -> Result<(usize, Vec<char>), String> {
-	unimplemented!()
+	todo!()
     }
 }
 
@@ -155,10 +194,10 @@ impl FromStr for Vault {
 				match t {
 				    Tile::Key(k) => {
 					keys.push(k);
-					key_positions.push((t, p));
+					key_positions.push((k, p));
 				    }
-				    Tile::Door(_) => {
-					door_positions.push((t, p));
+				    Tile::Door(d) => {
+					door_positions.push((d, p));
 				    }
 				    _ => {},
 				}
@@ -197,6 +236,8 @@ impl FromStr for Vault {
 	    keys_set: keys.into_iter().collect(),
 	    door_positions: door_positions.into_iter().collect(),
 	    key_positions: key_positions.into_iter().collect(),
+	    path_cache: RefCell::new(HashMap::new()),
+	    graph_cache: RefCell::new(HashMap::new()),
         })
     }
 }
@@ -205,17 +246,45 @@ impl FromStr for Vault {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_find_paths_from() {
-        let vault = r"#########
+    lazy_static! {
+	static ref VAULT: &'static str = r"#########
 #b.A.@.a#
-#########"
-            .parse::<Vault>()
+#########";
+    }
+    
+    #[test]
+    fn test_bfs() {
+        let vault = VAULT.parse::<Vault>()
             .unwrap();
 
-        assert_eq!(
-            vault.find_paths_from(&vault.start_position),
-            vec![('a', vec!['a'].into_iter().collect(), HashSet::new(), 2), ('b', vec!['b'].into_iter().collect(), vec!['a'].into_iter().collect(), 4)],
-        )
+	assert_eq!(
+	    vault.bfs(&vault.start_position, &HashSet::new()),
+	    vec![('a', 2)].into_iter().collect(),
+	);
+    }
+    
+    #[test]
+    fn test_bfs_b() {
+        let vault = VAULT.parse::<Vault>()
+            .unwrap();
+
+	assert_eq!(
+	    vault.bfs(&vault.start_position, &vec!['a'].into_iter().collect()),
+	    vec![('b', 4)].into_iter().collect(),
+	);
+    }
+    
+    #[test]
+    fn test_bfs_b_cache() {
+        let vault = VAULT.parse::<Vault>()
+            .unwrap();
+
+	let keys = vec!['a'].into_iter().collect();
+	vault.bfs(&vault.start_position, &keys);
+	
+	assert_eq!(
+	    vault.bfs(&vault.start_position, &keys),
+	    vec![('b', 4)].into_iter().collect(),
+	);
     }
 }
