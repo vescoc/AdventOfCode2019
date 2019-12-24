@@ -47,26 +47,56 @@ struct DealWithIncrement(usize);
 struct Cut(isize);
 struct DealIntoNewStack;
 
-fn mmi(a: u128, n: u128) -> Result<u128, String> {
-    let (mut t, mut new_t) = (0, 1);
-    let (mut r, mut new_r) = (a as i128, n as i128);
+// fn mmi(a: u128, n: u128) -> Result<u128, String> {
+//     let (mut t, mut new_t) = (0, 1);
+//     let (mut r, mut new_r) = (a as i128, n as i128);
 
-    while new_r != 0 {
-	let q = r / new_r;
+//     while new_r != 0 {
+// 	let q = r / new_r;
 	
-	let tmp = t - q * new_t;
-	t = new_t;
-	new_t = tmp;
+// 	let tmp = t - q * new_t;
+// 	t = new_t;
+// 	new_t = tmp;
 
-	let tmp = r - q * new_r;
-	r = new_r;
-	new_r = tmp;
+// 	let tmp = r - q * new_r;
+// 	r = new_r;
+// 	new_r = tmp;
+//     }
+
+//     if r > 1 {
+// 	Err(format!("{} is not invertible mod {}", a, n))
+//     } else {
+// 	Ok(if new_t < 0 { (new_t + n as i128) as u128 } else { new_t as u128 })
+//     }
+// }
+
+fn mmi(a: u128, base: u128) -> Result<u128, String> {
+    if base == 1 {
+        return Ok(0);
     }
 
-    if r > 1 {
-	Err(format!("{} is not invertible (mod {})", a, n))
+    let mut a = a as i128;
+    let mut base = base as i128;
+    
+    let orig = base;
+
+    let mut x = 1;
+    let mut y = 0;
+
+    while a > 1 {
+        let q = a / base;
+        let tmp = base;
+        base = a % base;
+        a = tmp;
+        let tmp = y;
+        y = x - q * y;
+        x = tmp;
+    }
+
+    if x < 0 {
+        Ok((x + orig) as u128)
     } else {
-	Ok(if new_t < 0 { (new_t + n as i128) as u128 } else { new_t as u128 })
+        Ok(x as u128)
     }
 }
 
@@ -227,7 +257,8 @@ fn solve_2(deck_size: u128, shuffle_times: u128, tracked_index: u128, shuffle_te
     let p = pow(a, shuffle_times, deck_size);
     let mmi = mmi(a - 1, deck_size).unwrap();
 
-    println!("a={} b={} mmi={} p={}", a, b, mmi, p);
+    println!("maxima: a:{}; b:{}; mmi:{} p:{}", a, b, mmi, p);
+    println!("maxima: mod({} * {} + ({} - 1) * {} * {}, {})", p, tracked_index, p, mmi, b, deck_size);
     
     ((p * tracked_index + (p - 1) * mmi * b)) % deck_size
 }
@@ -321,14 +352,27 @@ cut -1"
 	let shuffles = DATA.parse().unwrap();
 	
 	let deck = shuffle(10_007, &shuffles);
-	let card = deck.into_iter().position(|c| c == 2019).unwrap();
+	let position = deck.into_iter().position(|c| c == 2019).unwrap();
 	    
 	assert_eq!(
 	    shuffle_index(10_007, 2019, &shuffles),
-	    card as u128,
+	    position as u128,
 	)		
     }
 
+    #[test]
+    fn test_same_results_rev() {
+	let shuffles = DATA.parse().unwrap();
+	
+	let deck = shuffle(10_007, &shuffles);
+	let position = deck.into_iter().position(|c| c == 2019).unwrap();
+	    
+	assert_eq!(
+	    shuffle_index_rev(10_007, position as u128, &shuffles),
+	    2019,
+	)		
+    }
+    
     #[test]
     fn test_deal_with_increment_rev() {
 	let source = vec![0, 7, 4, 1, 8, 5, 2, 9, 6, 3];
@@ -374,14 +418,21 @@ cut -1"
 
     #[test]
     fn test_shuffle_rev() {
-	let shuffles = DATA.parse().unwrap();
+	let shuffles = DATA.parse::<Techniques>().unwrap();
 
-	let card = (0..10)
-	    .fold(2019, |index, _| shuffle_index(10_007, index, &shuffles));
+	const SHUFFLES: usize = 1;
+
+	let deck = (0..SHUFFLES).fold((0..10_007).collect::<Vec<usize>>(),
+			       |acc, _| shuffles.shuffle(&acc));
 	
 	assert_eq!(
-	    solve_2(10_007, 10, 2019, &shuffles),
-	    card,
+	    (0..SHUFFLES).fold(2019, |index, _| shuffle_index_rev(10_007, index, &shuffles)),
+	    deck[2019] as u128,
+	);
+	
+	assert_eq!(
+	    solve_2(10_007, SHUFFLES as u128, 2019, &shuffles),
+	    deck[2019] as u128,
 	)		
     }
     
