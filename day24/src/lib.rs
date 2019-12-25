@@ -31,7 +31,21 @@ pub fn part_1() -> u32 {
 }
 
 pub fn part_2() -> u32 {
-    todo!()
+    let data = r"....#
+#..#.
+#.?##
+..#..
+#....";
+    
+    let mut bugs: rbugs::Bugs = data.parse().unwrap();
+
+    for i in 0..10 {
+	bugs = bugs.next().unwrap();
+	println!("GENERATION {}\n{}", i, bugs);
+	
+    }
+
+    bugs.count_bugs()
 }
 
 #[cfg(test)]
@@ -73,6 +87,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_example_2_1() {
+	let data = r"....#
+#..#.
+#..##
+..#..
+#....";
+	
+	let mut bugs: rbugs::Bugs = data.parse().unwrap();
+
+	for i in 0..10 {
+	    println!("{}", i);
+	    bugs = bugs.next().unwrap();
+	}
+
+	assert_eq!(rbugs::Bugs::count(bugs), 99);
+    }
+    
     #[bench]
     fn bench_part_1(b: &mut Bencher) {
         b.iter(part_1);
