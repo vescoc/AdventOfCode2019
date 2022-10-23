@@ -125,7 +125,7 @@ impl FromStr for Vault {
 impl Vault {
     pub fn search(&self) -> Result<usize, &'static str> {
         #[derive(PartialEq, Eq)]
-        struct Info(usize, char, Coord, CharsSet);
+        struct Info(usize, Coord, CharsSet);
 
         impl Ord for Info {
             fn cmp(&self, other: &Self) -> Ordering {
@@ -152,9 +152,9 @@ impl Vault {
         let start = self.robots.iter().next().unwrap();
 
         costs.insert((*start, CharsSet::EMPTY), 0);
-        queue.push(Info(0, '@', *start, CharsSet::EMPTY));
+        queue.push(Info(0, *start, CharsSet::EMPTY));
 
-        while let Some(Info(current_cost, key, coord, current_keys)) = queue.pop() {
+        while let Some(Info(current_cost, coord, current_keys)) = queue.pop() {
             let cost = costs[&(coord, current_keys)];
             if current_keys == all_keys {
                 return Ok(cost);
@@ -165,7 +165,7 @@ impl Vault {
             }
 
             let neighbors = search_cache
-                .entry((key, coord))
+                .entry(coord)
                 .or_insert_with(|| self.dijkstra(coord));
 
             for ((key, coord), cost) in Vault::filter_neighbors(neighbors, current_keys) {
@@ -180,7 +180,7 @@ impl Vault {
                 let cost = costs.entry((*coord, keys)).or_insert(usize::MAX);
 
                 if total_cost < *cost {
-                    queue.push(Info(total_cost, *key, *coord, keys));
+                    queue.push(Info(total_cost, *coord, keys));
                     *cost = total_cost;
                 }
             }
@@ -236,7 +236,6 @@ impl Vault {
 
         let mut q = HashSet::new();
         let mut visited = HashMap::new();
-        let mut keys = self.keys.to_owned();
 
         q.insert(start);
         visited.insert(start, (0, None));
@@ -253,10 +252,9 @@ impl Vault {
                         *old_cost = target_cost;
                         previous.replace((x, y));
                     }
-                } else if self.grid.contains(&target) && !keys.is_empty() {
+                } else if self.grid.contains(&target) {
                     let (old_cost, previous) = visited.entry(target).or_insert_with(|| {
                         q.insert(target);
-                        keys.remove(&target);
                         (target_cost, Some((x, y)))
                     });
                     if *old_cost > target_cost {
