@@ -4,7 +4,7 @@ use std::fmt;
 use std::ops;
 use std::str::FromStr;
 
-type Coord = (usize, usize);
+pub type Coord = (usize, usize);
 
 #[derive(PartialEq, Copy, Clone, Hash, Eq)]
 pub struct CharsSet(u32);
@@ -75,7 +75,7 @@ pub struct Vault {
     grid: HashSet<Coord>,
     doors: HashMap<Coord, char>,
     keys: HashMap<Coord, char>,
-    robots: HashSet<Coord>,
+    pub robots: HashSet<Coord>,
 }
 
 impl FromStr for Vault {
@@ -123,17 +123,17 @@ impl FromStr for Vault {
 }
 
 impl Vault {
-    pub fn search(&self) -> Result<usize, &'static str> {
+    pub fn search<const N: usize>(&self, start: [Coord; N]) -> Result<usize, &'static str> {
         #[derive(PartialEq, Eq)]
-        struct Info(usize, Coord, CharsSet);
+        struct Info<const N: usize>(usize, [Coord; N], CharsSet);
 
-        impl Ord for Info {
+        impl<const N: usize> Ord for Info<N> {
             fn cmp(&self, other: &Self) -> Ordering {
                 other.0.cmp(&self.0)
             }
         }
 
-        impl PartialOrd for Info {
+        impl<const N: usize> PartialOrd for Info<N> {
             fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
                 Some(self.cmp(other))
             }
@@ -149,13 +149,11 @@ impl Vault {
         let mut costs = HashMap::new();
         let mut queue = BinaryHeap::new();
 
-        let start = self.robots.iter().next().unwrap();
+        costs.insert((start, CharsSet::EMPTY), 0);
+        queue.push(Info(0, start, CharsSet::EMPTY));
 
-        costs.insert((*start, CharsSet::EMPTY), 0);
-        queue.push(Info(0, *start, CharsSet::EMPTY));
-
-        while let Some(Info(current_cost, coord, current_keys)) = queue.pop() {
-            let cost = costs[&(coord, current_keys)];
+        while let Some(Info(current_cost, coords, current_keys)) = queue.pop() {
+            let cost = costs[&(coords, current_keys)];
             if current_keys == all_keys {
                 return Ok(cost);
             }
@@ -164,24 +162,29 @@ impl Vault {
                 continue;
             }
 
-            let neighbors = search_cache
-                .entry(coord)
-                .or_insert_with(|| self.dijkstra(coord));
+            for (i, coord) in coords.iter().enumerate() {
+                let neighbors = search_cache
+                    .entry(*coord)
+                    .or_insert_with(|| self.dijkstra(*coord));
 
-            for ((key, coord), cost) in Vault::filter_neighbors(neighbors, current_keys) {
-                let total_cost = current_cost + *cost;
+                for ((key, coord), cost) in Vault::filter_neighbors(neighbors, current_keys) {
+                    let total_cost = current_cost + *cost;
 
-                let keys = {
-                    let mut keys = current_keys;
-                    keys.insert(*key);
-                    keys
-                };
+                    let keys = {
+                        let mut keys = current_keys;
+                        keys.insert(*key);
+                        keys
+                    };
 
-                let cost = costs.entry((*coord, keys)).or_insert(usize::MAX);
+                    let mut coords = coords;
+                    coords[i] = *coord;
 
-                if total_cost < *cost {
-                    queue.push(Info(total_cost, *coord, keys));
-                    *cost = total_cost;
+                    let cost = costs.entry((coords, keys)).or_insert(usize::MAX);
+
+                    if total_cost < *cost {
+                        queue.push(Info(total_cost, coords, keys));
+                        *cost = total_cost;
+                    }
                 }
             }
         }
