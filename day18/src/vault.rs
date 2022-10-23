@@ -1,244 +1,290 @@
-use std::collections::{HashSet, HashMap, VecDeque};
-use std::cell::RefCell;
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt;
+use std::ops;
 use std::str::FromStr;
 
-type Point = (usize, usize);
+type Coord = (usize, usize);
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-enum Tile {
-    Empty,
-    Wall,
-    Door(char),
-    Key(char),
-}
+#[derive(PartialEq, Copy, Clone, Hash, Eq)]
+pub struct CharsSet(u32);
 
-#[derive(PartialEq, Hash, Eq, Debug)]
-struct PathKey(Point, Vec<char>);
+impl fmt::Debug for CharsSet {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let mut v = vec![];
+        for i in 0..(b'Z' - b'A' + 1) {
+            if self.0 & (1 << i) != 0 {
+                v.push((b'A' + i) as char);
+            }
+        }
 
-impl PathKey {
-    fn new(position: &Point, keys: &HashSet<char>) -> Self {
-	let mut keys = keys.iter().copied().collect::<Vec<char>>();
-	keys.sort();
-
-	Self(*position, keys)
+        write!(f, "{:?}", v)
     }
 }
 
-#[derive(PartialEq, Hash, Eq, Debug)]
-struct GraphKey(Vec<Point>, Vec<char>);
+impl CharsSet {
+    pub const EMPTY: CharsSet = CharsSet(0);
+    pub const ALLS: CharsSet = CharsSet(0b11111111111111111111111111);
 
-impl GraphKey {
-    fn new(positions: &[Point], keys: &HashSet<char>) -> Self {
-	let mut keys = keys.iter().copied().collect::<Vec<char>>();
-	keys.sort();
+    pub fn insert(&mut self, c: char) {
+        self.0 |= 1 << (c.to_ascii_uppercase() as u32 - b'A' as u32);
+    }
 
-	Self(positions.to_vec(), keys)
+    pub fn union(&self, other: &Self) -> Self {
+        CharsSet(self.0 | other.0)
+    }
+
+    pub fn intersection(&self, other: &Self) -> Self {
+        CharsSet(self.0 & other.0)
+    }
+
+    pub fn difference(&self, other: &Self) -> Self {
+        CharsSet(self.0 ^ other.0 & self.0)
+    }
+
+    pub fn contains(&self, c: char) -> bool {
+        self.0 & (1 << (c.to_ascii_uppercase() as u32 - b'A' as u32)) != 0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn is_alls(&self) -> bool {
+        self == &Self::ALLS
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.count_ones() as usize
+    }
+
+    pub fn is_superset(&self, other: &Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+impl ops::Add<char> for CharsSet {
+    type Output = CharsSet;
+
+    fn add(self, c: char) -> Self::Output {
+        CharsSet(self.0 | 1 << (c.to_ascii_uppercase() as u32 - b'A' as u32))
     }
 }
 
 pub struct Vault {
-    tiles: Vec<Vec<Tile>>,
-    start_position: Point,
-    keys: Vec<char>,
-    keys_set: HashSet<char>,
-    key_positions: HashMap<char, Point>,
-    door_positions: HashMap<char, Point>,
-    path_cache: RefCell<HashMap<PathKey, HashMap<char, usize>>>,
-    graph_cache: RefCell<HashMap<GraphKey, HashMap<char, usize>>>,
-}
-
-impl Vault {
-    fn width(&self) -> usize {
-        self.tiles[0].len()
-    }
-
-    fn height(&self) -> usize {
-        self.tiles.len()
-    }
-
-    fn get(&self, x: usize, y: usize) -> Option<Tile> {
-        self.tiles.get(y).and_then(|v| v.get(x).copied())
-    }
-
-    fn bfs(&self, start_position: &Point, keys: &HashSet<char>) -> HashMap<char, usize> {
-	let path_key = PathKey::new(start_position, keys);
-	if let Some(hit) = self.path_cache.borrow().get(&path_key) {
-	    println!("paths_cache hit {:?}", path_key);
-	    return hit.to_owned();
-	}
-
-	let mut result = vec![];
-	let mut visited = HashSet::new();
-	let mut queue = VecDeque::new();
-
-	queue.push_back((*start_position, 0));
-	while let Some(((x, y), moves)) = queue.pop_front() {
-	    visited.insert((x, y));
-	    [(1, 0), (-1, 0), (0, 1), (0, -1)]
-		.iter()
-		.filter_map(|(dx, dy)| {
-		    let (x, y) = ((x as isize + dx) as usize, ((y as isize + dy) as usize));
-		    match self.get(x, y) {
-			_ if visited.contains(&(x, y)) => None,
-			Some(Tile::Empty) => Some(((x, y), Tile::Empty)),
-			Some(Tile::Door(d)) if keys.contains(&d) => Some(((x, y), Tile::Empty)),
-			Some(Tile::Key(k)) if !keys.contains(&k) => Some(((x, y), Tile::Key(k))),
-			_ => None,
-		    }
-		})
-		.for_each(|((x, y), t)| {
-		    match t {
-			Tile::Key(k) => {
-			    result.push((k, moves + 1));
-			}
-			_ => {
-			    queue.push_back(((x, y), moves + 1));
-			}
-		    }
-		});
-	}
-
-	{
-	    let mut cache = self.path_cache.borrow_mut();
-	    println!("paths_cache fill {:?} {}", path_key, cache.len() + 1);
-	    cache.insert(path_key, result.iter().copied().collect());
-	}
-
-	result.into_iter().collect()
-    }
-
-    fn search_subgraph(&self, start_positions: &[Point], keys: &HashSet<char>) -> HashMap<Vec<char>, usize> {
-	let graph_key = GraphKey::new(start_positions, keys);
-	if let Some(hit) = self.graph_cache.borrow().get(&graph_key) {
-	    println!("graph_cache hit {:?}", graph_key);
-	    return hit;
-	}
-
-	start_positions
-	    .iter()
-	    .map(|position| {
-		self.bfs(position, keys)
-		    .into_iter()
-		    .map(|(key, steps)| {
-			self.search_subgraph(
-			    self.key_positions[key],
-			    {
-				let keys = keys.to_owned();
-				keys.insert(key);
-				keys
-			    },
-			)
-			    .into_iter()
-			    .map(|(v, sub_steps)| 
-	
-	{
-	    let mut cache = self.graph_cache.borrow_mut();
-	    println!("graph_cache fill {:?} {}", graph_key, cache.len() + 1);
-	    cache.insert(graph_key, result.iter().copied().collect());
-	}
-
-	result.into_iter().collect()
-    }
-
-    pub fn search(&self) -> Result<(usize, Vec<char>), String> {
-	todo!()
-    }
-}
-
-impl fmt::Display for Vault {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        for y in 0..self.height() {
-            for x in 0..self.width() {
-                match self.get(x, y).unwrap() {
-                    Tile::Empty => write!(fmt, ".")?,
-                    Tile::Wall => write!(fmt, "#")?,
-                    Tile::Door(c) => write!(fmt, "{}", c.to_ascii_uppercase())?,
-                    Tile::Key(c) => write!(fmt, "{}", c)?,
-                }
-            }
-
-            writeln!(fmt)?;
-        }
-
-        writeln!(fmt, "start position: {:?}", self.start_position)?;
-        writeln!(fmt, "keys: {:?}", self.keys)?;
-	writeln!(fmt, "key positions: {:?}", self.key_positions)?;
-	writeln!(fmt, "door position: {:?}", self.door_positions)
-    }
+    grid: HashSet<Coord>,
+    doors: HashMap<Coord, char>,
+    keys: HashMap<Coord, char>,
+    robots: HashSet<Coord>,
 }
 
 impl FromStr for Vault {
-    type Err = String;
+    type Err = &'static str;
 
-    fn from_str(data: &str) -> Result<Self, String> {
-        let (tiles, start_position, mut keys, door_positions, key_positions) = data
-            .lines()
-            .enumerate()
-            .map(|(y, l)| {
-                l.trim()
-                    .chars()
-                    .enumerate()
-                    .map(|(x, c)| match c {
-                        '#' => Ok((Tile::Wall, (x, y), None)),
-                        '.' => Ok((Tile::Empty, (x, y), None)),
-                        'a'..='z' => Ok((Tile::Key(c), (x, y), None)),
-                        'A'..='Z' => Ok((Tile::Door(c.to_ascii_lowercase()), (x, y), None)),
-                        '@' => Ok((Tile::Empty, (x, y), Some((x, y)))),
-                        _ => Err(format!("invalid char {} at ({}, {})", c, x, y)),
-                    })
-                    .try_fold(
-                        (vec![], None, vec![], vec![], vec![]),
-                        |(mut v, position, mut keys, mut door_positions, mut key_positions), r| match r {
-                            Ok((t, p, sp)) => {
-				match t {
-				    Tile::Key(k) => {
-					keys.push(k);
-					key_positions.push((k, p));
-				    }
-				    Tile::Door(d) => {
-					door_positions.push((d, p));
-				    }
-				    _ => {},
-				}
-				v.push(t);
-				Ok((v, position.or(sp), keys, door_positions, key_positions))
-			    }
-                            Err(e) => Err(e),
-                        },
-                    )
-            })
-            .try_fold(
-                (vec![], None, vec![], vec![], vec![]),
-                |(mut tiles, position, mut keys, mut door_positions, mut key_positions), r| match r {
-                    Ok((ts, p, mut k, mut dp, mut kp)) => {
-			tiles.push(ts);
-			keys.append(&mut k);
-			door_positions.append(&mut dp);
-			key_positions.append(&mut kp);
-			Ok((tiles,
-			    if position.is_some() { position } else { p },
-			    keys,
-			    door_positions,
-			    key_positions))
-		    }
-                    Err(e) => Err(e),
-                },
-            )?;
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let mut grid = HashSet::new();
+        let mut doors = HashMap::new();
+        let mut keys = HashMap::new();
+        let mut robots = HashSet::new();
 
-        keys.sort();
+        for (y, row) in input.lines().enumerate() {
+            for (x, c) in row.chars().enumerate() {
+                match c {
+                    '#' => {}
+                    '.' => {
+                        grid.insert((x, y));
+                    }
+                    'a'..='z' => {
+                        keys.insert((x, y), c);
+                        grid.insert((x, y));
+                    }
+                    'A'..='Z' => {
+                        doors.insert((x, y), c);
+                        grid.insert((x, y));
+                    }
+                    '@' => {
+                        robots.insert((x, y));
+                        grid.insert((x, y));
+                    }
+                    _ => {
+                        return Err("invalid tile");
+                    }
+                }
+            }
+        }
 
-        Ok(Self {
-            tiles,
-            start_position: start_position
-                .ok_or_else(|| String::from("cannot find start_position"))?,
-            keys: keys.to_owned(),
-	    keys_set: keys.into_iter().collect(),
-	    door_positions: door_positions.into_iter().collect(),
-	    key_positions: key_positions.into_iter().collect(),
-	    path_cache: RefCell::new(HashMap::new()),
-	    graph_cache: RefCell::new(HashMap::new()),
+        Ok(Vault {
+            grid,
+            doors,
+            keys,
+            robots,
         })
+    }
+}
+
+impl Vault {
+    pub fn search(&self) -> Result<usize, &'static str> {
+        #[derive(PartialEq, Eq)]
+        struct Info(usize, char, Coord, CharsSet);
+
+        impl Ord for Info {
+            fn cmp(&self, other: &Self) -> Ordering {
+                other.0.cmp(&self.0)
+            }
+        }
+
+        impl PartialOrd for Info {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+
+        let all_keys = self.keys.iter().fold(CharsSet::EMPTY, |mut acc, (_, key)| {
+            acc.insert(*key);
+            acc
+        });
+
+        let mut search_cache = HashMap::new();
+
+        let mut costs = HashMap::new();
+        let mut queue = BinaryHeap::new();
+
+        let start = self.robots.iter().next().unwrap();
+
+        costs.insert((*start, CharsSet::EMPTY), 0);
+        queue.push(Info(0, '@', *start, CharsSet::EMPTY));
+
+        while let Some(Info(current_cost, key, coord, current_keys)) = queue.pop() {
+            let cost = costs[&(coord, current_keys)];
+            if current_keys == all_keys {
+                return Ok(cost);
+            }
+
+            if current_cost > cost {
+                continue;
+            }
+
+            let neighbors = search_cache
+                .entry((key, coord))
+                .or_insert_with(|| self.dijkstra(coord));
+
+            for ((key, coord), cost) in Vault::filter_neighbors(neighbors, current_keys) {
+                let total_cost = current_cost + *cost;
+
+                let keys = {
+                    let mut keys = current_keys;
+                    keys.insert(*key);
+                    keys
+                };
+
+                let cost = costs.entry((*coord, keys)).or_insert(usize::MAX);
+
+                if total_cost < *cost {
+                    queue.push(Info(total_cost, *key, *coord, keys));
+                    *cost = total_cost;
+                }
+            }
+        }
+
+        Err("not found")
+    }
+
+    fn filter_neighbors(
+        paths: &HashMap<(char, Coord), (usize, CharsSet, CharsSet)>,
+        keys: CharsSet,
+    ) -> impl Iterator<Item = (&(char, Coord), &usize)> {
+        paths
+            .iter()
+            .filter_map(move |(k, (neighbor_cost, neighbor_doors, neighbor_keys))| {
+                if keys.is_superset(neighbor_doors)
+                    && neighbor_keys.difference(&keys) == CharsSet::EMPTY
+                {
+                    Some((k, neighbor_cost))
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn dijkstra(&self, start: Coord) -> HashMap<(char, Coord), (usize, CharsSet, CharsSet)> {
+        fn remove_min(
+            q: &mut HashSet<Coord>,
+            costs: &HashMap<Coord, (usize, Option<Coord>)>,
+        ) -> Option<(Coord, (usize, Option<Coord>))> {
+            if let Some(&c) = q.iter().min_by(|c1, c2| costs[c1].0.cmp(&costs[c2].0)) {
+                q.remove(&c);
+                Some((c, costs[&c]))
+            } else {
+                None
+            }
+        }
+
+        fn make_char_set(
+            map: &HashMap<Coord, char>,
+            visited: &HashMap<Coord, (usize, Option<Coord>)>,
+            mut start: Option<Coord>,
+        ) -> CharsSet {
+            let mut set = CharsSet::EMPTY;
+            while let Some(coord) = start {
+                if let Some(c) = map.get(&coord) {
+                    set.insert(*c);
+                }
+                start = visited.get(&coord).unwrap().1;
+            }
+            set
+        }
+
+        let mut q = HashSet::new();
+        let mut visited = HashMap::new();
+        let mut keys = self.keys.to_owned();
+
+        q.insert(start);
+        visited.insert(start, (0, None));
+
+        while let Some(((x, y), (cost, _))) = remove_min(&mut q, &visited) {
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let target = ((x as isize + dx) as usize, (y as isize + dy) as usize);
+
+                let target_cost = cost + 1;
+
+                if q.contains(&target) {
+                    let (old_cost, previous) = visited.get_mut(&target).unwrap();
+                    if *old_cost > target_cost {
+                        *old_cost = target_cost;
+                        previous.replace((x, y));
+                    }
+                } else if self.grid.contains(&target) && !keys.is_empty() {
+                    let (old_cost, previous) = visited.entry(target).or_insert_with(|| {
+                        q.insert(target);
+                        keys.remove(&target);
+                        (target_cost, Some((x, y)))
+                    });
+                    if *old_cost > target_cost {
+                        *old_cost = target_cost;
+                        previous.replace((x, y));
+                    }
+                }
+            }
+        }
+
+        self.keys
+            .iter()
+            .flat_map(|(&coord, &key)| {
+                visited
+                    .get(&coord)
+                    .map(|(cost, previous)| {
+                        (
+                            (key, coord),
+                            (
+                                *cost,
+                                make_char_set(&self.doors, &visited, *previous),
+                                make_char_set(&self.keys, &visited, *previous),
+                            ),
+                        )
+                    })
+                    .into_iter()
+            })
+            .collect()
     }
 }
 
@@ -246,45 +292,55 @@ impl FromStr for Vault {
 mod tests {
     use super::*;
 
-    lazy_static! {
-	static ref VAULT: &'static str = r"#########
-#b.A.@.a#
-#########";
+    macro_rules! charsset {
+        () => { $crate::vault::CharsSet::EMPTY };
+        ($($e:expr),*) => {
+            {
+                let mut set = $crate::vault::CharsSet::EMPTY;
+                { $(set.insert($e);)* }
+                set
+            }
+        };
     }
-    
-    #[test]
-    fn test_bfs() {
-        let vault = VAULT.parse::<Vault>()
-            .unwrap();
 
-	assert_eq!(
-	    vault.bfs(&vault.start_position, &HashSet::new()),
-	    vec![('a', 2)].into_iter().collect(),
-	);
+    fn print_paths<K: fmt::Debug, V: fmt::Debug>(paths: &HashMap<K, V>) {
+        for (i, path) in paths.iter().enumerate() {
+            println!("{i}: {:?}", path);
+        }
     }
-    
-    #[test]
-    fn test_bfs_b() {
-        let vault = VAULT.parse::<Vault>()
-            .unwrap();
 
-	assert_eq!(
-	    vault.bfs(&vault.start_position, &vec!['a'].into_iter().collect()),
-	    vec![('b', 4)].into_iter().collect(),
-	);
+    #[test]
+    fn test_dijkstra_1_1() {
+        let vault = include_str!("../example1-1.txt").parse::<Vault>().unwrap();
+
+        let paths = vault.dijkstra(*vault.robots.iter().next().unwrap());
+
+        print_paths(&paths);
+
+        assert_eq!(paths[&('a', (7, 1))], (2, charsset![], charsset![]));
+        assert_eq!(paths[&('b', (1, 1))], (4, charsset!['A'], charsset![]));
     }
-    
-    #[test]
-    fn test_bfs_b_cache() {
-        let vault = VAULT.parse::<Vault>()
-            .unwrap();
 
-	let keys = vec!['a'].into_iter().collect();
-	vault.bfs(&vault.start_position, &keys);
-	
-	assert_eq!(
-	    vault.bfs(&vault.start_position, &keys),
-	    vec![('b', 4)].into_iter().collect(),
-	);
+    #[test]
+    fn test_dijkstra_1_2() {
+        let vault = include_str!("../example1-2.txt").parse::<Vault>().unwrap();
+
+        let paths = vault.dijkstra(*vault.robots.iter().next().unwrap());
+
+        print_paths(&paths);
+    }
+
+    #[test]
+    fn test_filter_neighbors() {
+        let vault = include_str!("../example1-2.txt").parse::<Vault>().unwrap();
+
+        let paths = vault.dijkstra(*vault.robots.iter().next().unwrap());
+
+        assert_eq!(
+            Vault::filter_neighbors(&paths, charsset![]).collect::<Vec<_>>(),
+            vec![(&('a', (17, 1)), &2)]
+        );
+
+        assert_eq!(Vault::filter_neighbors(&paths, charsset!['a']).count(), 2);
     }
 }
