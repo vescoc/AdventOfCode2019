@@ -1,280 +1,260 @@
-use std::fmt;
-use std::str::FromStr;
+use std::collections::VecDeque;
+use std::fmt::{self, Write};
+use std::str;
 
-#[derive(Clone)]
-struct BugsLayer {
-    value: u32,
-    level: isize,
-    inner: Option<usize>,
-    outer: Option<usize>,
-}
+#[derive(PartialEq, Eq, Debug)]
+struct BugsLayer(u32);
 
 impl BugsLayer {
-    fn new(level: isize, inner: Option<usize>, outer: Option<usize>) -> Self {
-	Self {
-	    value: 0,
-	    level,
-	    inner,
-	    outer,
-	}
+    const DIM: usize = Bugs::DIM;
+
+    fn get_left_inner(&self) -> usize {
+        (0..5).map(|i| self.is_set((0, i)) as usize).sum()
     }
 
-    fn count(&self) -> u32 {
-	let mut sum = 0;
-	for i in 0..25 {
-	    if self.value & (1 << i) != 0 {
-		sum += 1;
-	    }
-	}
-
-	sum
+    fn get_right_inner(&self) -> usize {
+        (0..5).map(|i| self.is_set((4, i)) as usize).sum()
     }
 
-    fn left(&self) -> u32 {
-        let mut value = 0;
-        for i in 0..5 {
-            value += if self.value & (1 << (i * 5)) != 0 { 1 } else { 0 };
-        }
-
-        value
+    fn get_top_inner(&self) -> usize {
+        (0..5).map(|i| self.is_set((i, 0)) as usize).sum()
     }
 
-    fn right(&self) -> u32 {
-        let mut value = 0;
-        for i in 0..5 {
-            value += if self.value & (1 << (i * 5 + 4)) != 0 { 1 } else { 0 };
-        }
-        
-        value
+    fn get_bottom_inner(&self) -> usize {
+        (0..5).map(|i| self.is_set((i, 4)) as usize).sum()
     }
 
-    fn top(&self) -> u32 {
-        let mut value = 0;
-        for i in 0..5 {
-            value += if self.value & (1 << i) != 0 { 1 } else { 0 };
-        }
-        
-        value
+    fn get_right_outer(&self) -> usize {
+        self.is_set((3, 2)) as usize
     }
 
-    fn bottom(&self) -> u32 {
-        let mut value = 0;
-        for i in 0..5 {
-            value += if self.value & (1 << (20 + i)) != 0 { 1 } else { 0 };
-        }
-            
-        value
+    fn get_left_outer(&self) -> usize {
+        self.is_set((1, 2)) as usize
     }
-}
 
-#[derive(Clone)]
-pub struct Bugs {
-    layers: Vec<BugsLayer>,
-    innermost: usize,
-    outermost: usize,
-}
+    fn get_top_outer(&self) -> usize {
+        self.is_set((2, 1)) as usize
+    }
 
-impl Bugs {
-    fn get(&self, layer: usize, x: i32, y: i32, dx: i32, dy: i32) -> u32 {
-        let right = |layer: &BugsLayer| layer.right();
-        let left = |layer: &BugsLayer| layer.left();
-        let top = |layer: &BugsLayer| layer.top();
-        let bottom = |layer: &BugsLayer| layer.bottom();
+    fn get_bottom_outer(&self) -> usize {
+        self.is_set((2, 3)) as usize
+    }
 
-        let inner = |f: fn (&BugsLayer) -> u32| {
-            match self.layers[layer].inner {
-                Some(index) => f(&self.layers[index]),
-                None => 0,
+    fn get(
+        &self,
+        (x, y): (usize, usize),
+        (dx, dy): (isize, isize),
+        outer: &Option<&Self>,
+        inner: &Option<&Self>,
+    ) -> usize {
+        let (x, y) = (x as isize + dx, y as isize + dy);
+        if x == 2 && y == 2 {
+            if dx < 0 {
+                inner.map(Self::get_right_inner).unwrap_or_default()
+            } else if dx > 0 {
+                inner.map(Self::get_left_inner).unwrap_or_default()
+            } else if dy < 0 {
+                inner.map(Self::get_bottom_inner).unwrap_or_default()
+            } else if dy > 0 {
+                inner.map(Self::get_top_inner).unwrap_or_default()
+            } else {
+                unreachable!()
             }
-        };
-
-	let outer = |x: u32, y: u32| {
-	    match self.layers[layer].outer {
-		Some(index) => if self.layers[index].value & (1 << (y * 5 + x)) != 0 { 1 } else { 0 },
-		None => 0,
-	    }
-	};
-
-	let get = |x: u32, y: u32| {
-	    if self.layers[layer].value & (1 << (y * 5 + x)) != 0 { 1 } else { 0 }
-	};
-        
-        match (x + dx, y + dy) {
-            (2, 2) => match (dx, dy) {
-                (-1, 0) => inner(right),
-                (1, 0) => inner(left),
-                (0, 1) => inner(bottom),
-                (0, -1) => inner(top),
-                _ => unreachable!(),
-            },
-	    (x @ 0..=4, y @ 0..=4) => get(x as u32, y as u32),
-	    (-1, _) => outer(1, 2),
-	    (5, _) => outer(3, 2),
-	    (_, -1) => outer(2, 1),
-	    (_, 5) => outer(2, 3),
-	    _ => unreachable!(),
+        } else if x < 0 {
+            outer.map(Self::get_left_outer).unwrap_or_default()
+        } else if x >= Self::DIM as isize {
+            outer.map(Self::get_right_outer).unwrap_or_default()
+        } else if y < 0 {
+            outer.map(Self::get_top_outer).unwrap_or_default()
+        } else if y >= Self::DIM as isize {
+            outer.map(Self::get_bottom_outer).unwrap_or_default()
+        } else {
+            self.is_set((x as usize, y as usize)) as usize
         }
     }
 
-    fn allocate_innermost(&mut self) {
-	let innermost = self.innermost;
-	if self.layers[innermost].value != 0 {
-	    let index = self.layers.len();
-	    let level = self.layers[innermost].level;
-	    self.layers[innermost].inner = Some(index);
-
-	    self.innermost = index;
-
-	    self.layers.push(BugsLayer::new(level - 1, None, Some(innermost)));
-	}
+    fn is_set(&self, (x, y): (usize, usize)) -> bool {
+        (self.0 >> (y * BugsLayer::DIM + x)) & 1 == 1
     }
 
-    fn allocate_outermost(&mut self) {
-	let outermost = self.outermost;
-	if self.layers[outermost].value != 0 {
-	    let index = self.layers.len();
-	    let level = self.layers[outermost].level;
-	    self.layers[outermost].outer = Some(index);
-
-	    self.outermost = index;
-
-	    self.layers.push(BugsLayer::new(level + 1, Some(outermost), None));
-	}
-    }
-
-    pub fn count_bugs(&self) -> u32 {
-	let mut sum = 0;
-	
-	let mut current = self.innermost;
-	loop {
-	    sum += self.layers[current].count();
-
-	    if let Some(index) = self.layers[current].outer {
-		current = index;
-	    } else {
-		break sum;
-	    }
-	}
+    fn set(&mut self, (x, y): (usize, usize), value: bool) {
+        if value {
+            self.0 |= 1 << (y * Self::DIM + x);
+        } else {
+            self.0 &= !(1 << (y * Self::DIM + x));
+        }
     }
 }
 
-impl FromStr for Bugs {
-    type Err = String;
+#[derive(PartialEq, Eq)]
+pub struct Bugs(VecDeque<BugsLayer>);
 
-    fn from_str(data: &str) -> Result<Self, String> {
-        u32::from_str_radix(
-            &data
-                .lines()
-                .flat_map(|line| {
-                    line.trim().chars().map(|c| match c {
-                        '.' | '?' => Ok('0'),
-                        '#' => Ok('1'),
-                        _ => Err(format!("invalid char {}", c)),
-                    })
+impl str::FromStr for Bugs {
+    type Err = &'static str;
+
+    fn from_str(data: &str) -> Result<Self, Self::Err> {
+        let layer = data
+            .lines()
+            .flat_map(|line| {
+                line.trim().chars().map(|c| match c {
+                    '.' | '?' => Ok(0),
+                    '#' => Ok(1),
+                    _ => Err("invalid char"),
                 })
-                .rev()
-                .collect::<Result<String, String>>()?,
-            2,
-        )
-            .map(|value| {
-                Self {
-                    layers: vec![
-                        BugsLayer {
-                            value,
-                            level: 0,
-                            inner: None,
-                            outer: None,
-                        }
-                    ],
-		    innermost: 0,
-		    outermost: 0,
-                }
             })
-            .map_err(|e| format!("{}", e))
+            .try_fold(0, |acc, v| v.map(|v| (acc << 1) + v))?;
+
+        let queue = VecDeque::from([BugsLayer(layer)]);
+
+        Ok(Bugs(queue))
+    }
+}
+
+impl fmt::Debug for Bugs {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let Bugs(queue) = self;
+
+        for (i, BugsLayer(value)) in queue.iter().enumerate() {
+            writeln!(
+                f,
+                "bits: 0b{:025b} depth: {}",
+                value,
+                i as isize - queue.len() as isize / 2
+            )?;
+        }
+
+        Ok(())
     }
 }
 
 impl fmt::Display for Bugs {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-	let mut current = self.outermost;
-	loop {
-	    writeln!(fmt, "Depth {}:", -self.layers[current].level)?;
-	    fmt.write_str(
-		&(0..25)
-		    .flat_map(|i| {
-			(String::from(if i % 5 == 0 && i != 0 { "\n" } else { "" })
-			 + if i == 25 / 2 { "?" } else if self.layers[current].value & (1 << i) != 0 { "#" } else { "." })
-			    .chars()
-			    .collect::<Vec<char>>()
-		    })
-		    .collect::<String>(),
-	    )?;
-	    writeln!(fmt, "")?;
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let Bugs(queue) = self;
+        let len = queue.len();
 
-	    if let Some(index) = self.layers[current].inner {
-		current = index;
-	    } else {
-		break Ok(());
-	    }
-	}
+        for (i, BugsLayer(value)) in queue.iter().enumerate() {
+            write!(
+                f,
+                "Depth {} 0b{:025b}",
+                i as isize - len as isize / 2,
+                value
+            )?;
+            for i in 0..5 * 5 {
+                if i % 5 == 0 {
+                    writeln!(f)?;
+                }
+                let c = if i == 5 * 5 / 2 {
+                    '?'
+                } else if value & (1 << (5 * 5 - 1 - i)) != 0 {
+                    '#'
+                } else {
+                    '.'
+                };
+                f.write_char(c)?;
+            }
+
+            if i + 1 < len {
+                writeln!(f)?;
+                writeln!(f)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
 impl Iterator for Bugs {
-    type Item = Bugs;
+    type Item = usize;
 
-    fn next(&mut self) -> Option<Bugs> {
-	self.allocate_innermost();
-	self.allocate_outermost();
-	
-        let bugs = self.clone();
+    fn next(&mut self) -> Option<usize> {
+        let mut count = 0;
+        let mut queue = VecDeque::new();
 
-	let mut current = self.innermost;
-	loop {
-            for x in 0..5 {
-		for y in 0..5 {
-		    if x != 2 || y != 2 {
-			match (
-			    [(0, 1), (0, -1), (1, 0), (-1, 0)]
-				.iter()
-				.map(|(dx, dy)| bugs.get(current, x, y, *dx, *dy))
-				.sum::<u32>(),
-			    bugs.get(current, x, y, 0, 0),
-			) {
-			    (s, 1) if s != 1 => self.layers[current].value &= !(1 << (y * 5 + x)),
-			    (s, 0) if s == 1 || s == 2 => self.layers[current].value |= 1 << (y * 5 + x),
-			    _ => {}
-			}
-		    }
-		}
+        match Self::evolve(&BugsLayer(0), &None, &self.0.front()) {
+            (layer, layer_count) if layer_count > 0 => {
+                queue.push_back(layer);
+                count += layer_count;
             }
+            _ => {}
+        }
 
-	    if let Some(index) = self.layers[current].outer {
-		current = index;
-	    } else {
-		break;
-	    }
-	}
+        let mut outer = None;
+        while let Some(current) = self.0.pop_front() {
+            let inner = self.0.front();
 
-        Some(self.to_owned())
+            let (layer, layer_count) = Self::evolve(&current, &outer.as_ref(), &inner);
+
+            queue.push_back(layer);
+            count += layer_count;
+
+            outer = Some(current);
+        }
+
+        match Self::evolve(&BugsLayer(0), &outer.as_ref(), &None) {
+            (layer, layer_count) if layer_count > 0 => {
+                queue.push_back(layer);
+                count += layer_count;
+            }
+            _ => {}
+        }
+
+        self.0 = queue;
+
+        Some(count)
     }
 }
 
+impl Bugs {
+    const DIM: usize = 5;
+
+    fn evolve(
+        current: &BugsLayer,
+        outer: &Option<&BugsLayer>,
+        inner: &Option<&BugsLayer>,
+    ) -> (BugsLayer, usize) {
+        let mut count = 0;
+        let mut layer = BugsLayer(current.0);
+        for x in 0..Self::DIM {
+            for y in 0..Self::DIM {
+                if (x, y) == (2, 2) {
+                    continue;
+                }
+
+                match (
+                    [(0, 1), (0, -1), (1, 0), (-1, 0)]
+                        .iter()
+                        .map(|d| current.get((x, y), *d, outer, inner))
+                        .sum::<usize>(),
+                    current.is_set((x, y)),
+                ) {
+                    (s, true) if s != 1 => layer.set((x, y), false),
+                    (s, false) if s == 1 || s == 2 => {
+                        layer.set((x, y), true);
+                        count += 1;
+                    }
+                    (_, true) => {
+                        count += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        (layer, count)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_display() {
-	let data = r"....#
-#..#.
-#.?##
-..#..
-#....";
-	
-	let bugs = data.parse::<Bugs>().unwrap();
-
-	assert_eq!(format!("{}", bugs), format!("Depth 0:\n{}\n", data));
+    fn test_from_str() {
+        assert_eq!(
+            include_str!("../example.txt").parse(),
+            Ok(Bugs(VecDeque::from([BugsLayer(
+                0b0000110010100110010010000
+            )])))
+        );
     }
 }

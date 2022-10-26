@@ -101,12 +101,8 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let data = r"....#
-#..#.
-#..##
-..#..
-#....";
+        let data = include_str!("../example.txt");
 
-        assert_eq!(format!("{}", data.parse::<Bugs>().unwrap()), data);
+        assert_eq!(format!("{}\n", data.parse::<Bugs>().unwrap()), data);
     }
 }

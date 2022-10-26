@@ -1,8 +1,4 @@
-#![feature(test)]
-extern crate test;
-
-#[macro_use]
-extern crate lazy_static;
+use lazy_static::lazy_static;
 
 use std::collections::HashSet;
 
@@ -10,12 +6,13 @@ mod bugs;
 mod rbugs;
 
 lazy_static! {
-    static ref BUGS: bugs::Bugs = include_str!("../data.txt").parse().unwrap();
+    static ref DATA: &'static str = include_str!("../data.txt");
 }
 
-fn solve_1(bugs: &bugs::Bugs) -> u32 {
+fn solve_1(input: &str) -> u32 {
+    let bugs = input.parse::<bugs::Bugs>().unwrap();
     let mut seen = HashSet::<bugs::Bugs>::new();
-    for b in bugs.to_owned() {
+    for b in bugs {
         if seen.contains(&b) {
             return b.value();
         } else {
@@ -26,56 +23,35 @@ fn solve_1(bugs: &bugs::Bugs) -> u32 {
     unreachable!()
 }
 
-pub fn part_1() -> u32 {
-    solve_1(&BUGS)
+fn solve_2(input: &str, minutes: usize) -> usize {
+    input
+        .parse::<rbugs::Bugs>()
+        .unwrap()
+        .nth(minutes - 1)
+        .unwrap()
 }
 
-pub fn part_2() -> u32 {
-    let data = r"....#
-#..#.
-#.?##
-..#..
-#....";
-    
-    let mut bugs: rbugs::Bugs = data.parse().unwrap();
+pub fn part_1() -> u32 {
+    solve_1(&DATA)
+}
 
-    for i in 0..10 {
-	bugs = bugs.next().unwrap();
-	println!("GENERATION {}\n{}", i, bugs);
-	
-    }
-
-    bugs.count_bugs()
+pub fn part_2() -> usize {
+    solve_2(&DATA, 200)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
 
     #[test]
     #[allow(clippy::unreadable_literal)]
     fn test_example_1_1() {
-        let bugs = r"....#
-#..#.
-#..##
-..#..
-#...."
-            .parse()
-            .unwrap();
-
-        assert_eq!(solve_1(&bugs), 2129920);
+        assert_eq!(solve_1(include_str!("../example.txt")), 2129920);
     }
 
     #[test]
     fn test_example_1_0() {
-        let mut bugs: bugs::Bugs = r"....#
-#..#.
-#..##
-..#..
-#...."
-            .parse()
-            .unwrap();
+        let mut bugs: bugs::Bugs = include_str!("../example.txt").parse().unwrap();
 
         assert_eq!(
             format!("{}", bugs.next().unwrap()),
@@ -89,29 +65,6 @@ mod tests {
 
     #[test]
     fn test_example_2_1() {
-	let data = r"....#
-#..#.
-#..##
-..#..
-#....";
-	
-	let mut bugs: rbugs::Bugs = data.parse().unwrap();
-
-	for i in 0..10 {
-	    println!("{}", i);
-	    bugs = bugs.next().unwrap();
-	}
-
-	assert_eq!(rbugs::Bugs::count(bugs), 99);
-    }
-    
-    #[bench]
-    fn bench_part_1(b: &mut Bencher) {
-        b.iter(part_1);
-    }
-
-    #[bench]
-    fn bench_part_2(b: &mut Bencher) {
-        b.iter(part_2);
+        assert_eq!(solve_2(include_str!("../example.txt"), 10), 99);
     }
 }
