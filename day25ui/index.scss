@@ -1,0 +1,12 @@
+.command {
+    display: block;
+}
+
+.output {
+    display: flex;
+    margin: 2px 2px 2px 2px;
+    width: 1000px;
+    height: 800px;
+    border-style: solid;
+    overflow: auto;
+}

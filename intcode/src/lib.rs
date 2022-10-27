@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::ops::{Deref, Index, IndexMut};
+use std::str::FromStr;
 use std::sync::mpsc::{Receiver, RecvError, SendError, Sender};
 use std::thread;
-use std::str::FromStr;
 
 pub type Memory = i128;
 
@@ -215,11 +215,8 @@ impl CPU {
     }
 
     pub fn step(&mut self) -> Result<Step, Error> {
-        let opcode = Opcode::from(
-            self.memory.get(&self.ip).ok_or_else(|| Error::EOF)?,
-            self.ip,
-        )
-        .map_err(Error::InvalidOpcode)?;
+        let opcode = Opcode::from(self.memory.get(&self.ip).ok_or(Error::EOF)?, self.ip)
+            .map_err(Error::InvalidOpcode)?;
 
         match opcode {
             Opcode::Add(mode1, mode2, mode3) => {
@@ -359,7 +356,7 @@ impl ToOwned for CPU {
     fn to_owned(&self) -> Self {
         Self {
             memory: self.memory.clone(),
-            ..*self            
+            ..*self
         }
     }
 }
